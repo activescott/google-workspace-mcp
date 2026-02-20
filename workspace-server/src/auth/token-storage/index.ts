@@ -7,4 +7,5 @@
 export * from './types';
 export * from './base-token-storage';
 export * from './file-token-storage';
+export * from './injected-token-storage';
 export * from './hybrid-token-storage';

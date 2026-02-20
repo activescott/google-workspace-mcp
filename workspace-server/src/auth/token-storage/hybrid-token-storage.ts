@@ -6,10 +6,12 @@
 
 import { BaseTokenStorage } from './base-token-storage';
 import { FileTokenStorage } from './file-token-storage';
+import { InjectedTokenStorage } from './injected-token-storage';
 import type { TokenStorage, OAuthCredentials } from './types';
 import { TokenStorageType } from './types';
 
 const FORCE_FILE_STORAGE_ENV_VAR = 'GEMINI_CLI_WORKSPACE_FORCE_FILE_STORAGE';
+const CREDENTIALS_PATH_ENV_VAR = 'WORKSPACE_CREDENTIALS_PATH';
 
 export class HybridTokenStorage extends BaseTokenStorage {
   private storage: TokenStorage | null = null;
@@ -21,6 +23,15 @@ export class HybridTokenStorage extends BaseTokenStorage {
   }
 
   private async initializeStorage(): Promise<TokenStorage> {
+    // If an external system has injected credentials via a file path,
+    // use that directly — no keychain or encrypted file needed.
+    const credentialsPath = process.env[CREDENTIALS_PATH_ENV_VAR];
+    if (credentialsPath) {
+      this.storage = new InjectedTokenStorage(this.serviceName, credentialsPath);
+      this.storageType = TokenStorageType.INJECTED;
+      return this.storage;
+    }
+
     const forceFileStorage = process.env[FORCE_FILE_STORAGE_ENV_VAR] === 'true';
 
     if (!forceFileStorage) {

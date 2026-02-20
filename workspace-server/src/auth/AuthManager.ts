@@ -18,6 +18,8 @@ import { loadConfig } from '../utils/config';
 const config = loadConfig();
 const CLIENT_ID = config.clientId;
 const CLOUD_FUNCTION_URL = config.cloudFunctionUrl;
+const TOKEN_REFRESH_URL = config.tokenRefreshUrl;
+const CREDENTIALS_PATH = config.credentialsPath;
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
@@ -174,6 +176,17 @@ export class AuthManager {
       }
     }
 
+    // When running in injected credentials mode, never fall through to browser auth.
+    // The injected file is the only source of truth — if it doesn't have valid tokens,
+    // the external system that manages the credentials needs to provide them.
+    if (CREDENTIALS_PATH) {
+      throw new Error(
+        'WORKSPACE_CREDENTIALS_PATH is set but no valid credentials were found ' +
+          `in ${CREDENTIALS_PATH}. Ensure the file contains valid access_token ` +
+          'and/or refresh_token fields.',
+      );
+    }
+
     const webLogin = await this.authWithWeb(oAuth2Client);
     await open(webLogin.authUrl);
     const msg = 'Waiting for authentication... Check your browser.';
@@ -221,11 +234,10 @@ export class AuthManager {
         throw new Error('No refresh token available');
       }
 
-      logToFile('Calling cloud function to refresh token...');
+      const refreshUrl = TOKEN_REFRESH_URL || `${CLOUD_FUNCTION_URL}/refreshToken`;
+      logToFile(`Refreshing token via ${TOKEN_REFRESH_URL ? 'custom refresh URL' : 'cloud function'}...`);
 
-      // Call the cloud function refresh endpoint
-      // The cloud function has the client secret needed for token refresh
-      const response = await fetch(`${CLOUD_FUNCTION_URL}/refreshToken`, {
+      const response = await fetch(refreshUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -253,7 +265,7 @@ export class AuthManager {
 
       this.client.setCredentials(mergedCredentials);
       await OAuthCredentialStorage.saveCredentials(mergedCredentials);
-      logToFile('Token refreshed and saved successfully via cloud function');
+      logToFile(`Token refreshed and saved successfully via ${TOKEN_REFRESH_URL ? 'custom refresh URL' : 'cloud function'}`);
     } catch (error) {
       logToFile(`Error during token refresh: ${error}`);
       throw error;

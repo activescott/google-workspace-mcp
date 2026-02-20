@@ -90,6 +90,22 @@ describe('HybridTokenStorage', () => {
   });
 
   describe('storage selection', () => {
+    it('should use injected storage when WORKSPACE_CREDENTIALS_PATH is set', async () => {
+      process.env['WORKSPACE_CREDENTIALS_PATH'] = '/tmp/test-creds.json';
+
+      // Need a fresh instance since the env var is read at init time
+      storage = new HybridTokenStorage('test-service');
+
+      // getCredentials will try to read the file which doesn't exist,
+      // so InjectedTokenStorage returns null — but the storage type should be INJECTED
+      await storage.getCredentials('test-server');
+
+      expect(await storage.getStorageType()).toBe(TokenStorageType.INJECTED);
+      // Should NOT have tried keychain or file storage
+      expect(mockKeychainStorage.isAvailable).not.toHaveBeenCalled();
+      expect(mockFileStorage.getCredentials).not.toHaveBeenCalled();
+    });
+
     it('should use keychain when available', async () => {
       mockKeychainStorage.isAvailable!.mockResolvedValue(true);
       mockKeychainStorage.getCredentials.mockResolvedValue(null);
