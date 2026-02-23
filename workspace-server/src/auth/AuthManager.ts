@@ -17,10 +17,12 @@ import { loadConfig } from '../utils/config';
 
 const config = loadConfig();
 const CLIENT_ID = config.clientId;
+const CLIENT_SECRET = config.clientSecret;
 const CLOUD_FUNCTION_URL = config.cloudFunctionUrl;
 const TOKEN_REFRESH_URL = config.tokenRefreshUrl;
 const CREDENTIALS_PATH = config.credentialsPath;
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000; // 5 minutes
+const MS_PER_SECOND = 1000;
 
 /**
  * An Authentication URL for updating the credentials of a Oauth2Client
@@ -68,6 +70,18 @@ export class AuthManager {
       );
 
       if (missingScopes.length > 0) {
+        // When using injected credentials, accept partial scopes — the user
+        // may intentionally grant only a subset (e.g. calendar + email but
+        // not drive). Tools for missing scopes will fail at call time with
+        // a clear permission error rather than blocking all tools.
+        const isInjected = !!process.env['WORKSPACE_CREDENTIALS_PATH'];
+        if (isInjected) {
+          logToFile(
+            `Token missing scopes: ${missingScopes.join(', ')} — accepting partial scopes for injected credentials`,
+          );
+          client.setCredentials(credentials);
+          return true;
+        }
         logToFile(
           `Token cache missing required scopes: ${missingScopes.join(', ')}`,
         );
@@ -234,38 +248,76 @@ export class AuthManager {
         throw new Error('No refresh token available');
       }
 
-      const refreshUrl = TOKEN_REFRESH_URL || `${CLOUD_FUNCTION_URL}/refreshToken`;
-      logToFile(`Refreshing token via ${TOKEN_REFRESH_URL ? 'custom refresh URL' : 'cloud function'}...`);
+      let mergedCredentials: Auth.Credentials;
 
-      const response = await fetch(refreshUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          refresh_token: currentCredentials.refresh_token,
-        }),
-      });
+      if (CLIENT_SECRET) {
+        // Direct Google token refresh using our own client credentials.
+        // This bypasses the Gemini CLI cloud function which uses a different client_id/secret.
+        logToFile('Refreshing token directly via Google OAuth endpoint...');
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(
-          `Token refresh failed: ${response.status} ${errorText}`,
-        );
+        const response = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            client_id: CLIENT_ID,
+            client_secret: CLIENT_SECRET,
+            refresh_token: currentCredentials.refresh_token,
+            grant_type: 'refresh_token',
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(
+            `Direct Google token refresh failed: ${response.status} ${errorText}`,
+          );
+        }
+
+        const data = await response.json();
+        mergedCredentials = {
+          access_token: data.access_token,
+          token_type: data.token_type || 'Bearer',
+          scope: data.scope || currentCredentials.scope,
+          expiry_date: Date.now() + (data.expires_in * MS_PER_SECOND),
+          refresh_token: currentCredentials.refresh_token, // Always preserve original
+        };
+      } else {
+        // Fall back to cloud function or custom refresh URL
+        const refreshUrl = TOKEN_REFRESH_URL || `${CLOUD_FUNCTION_URL}/refreshToken`;
+        logToFile(`Refreshing token via ${TOKEN_REFRESH_URL ? 'custom refresh URL' : 'cloud function'}...`);
+
+        const response = await fetch(refreshUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            refresh_token: currentCredentials.refresh_token,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(
+            `Token refresh failed: ${response.status} ${errorText}`,
+          );
+        }
+
+        const newTokens = await response.json();
+
+        // Merge new tokens with existing credentials, preserving refresh_token
+        // Note: Google does NOT return a new refresh_token on refresh
+        mergedCredentials = {
+          ...newTokens,
+          refresh_token: currentCredentials.refresh_token, // Always preserve original
+        };
       }
-
-      const newTokens = await response.json();
-
-      // Merge new tokens with existing credentials, preserving refresh_token
-      // Note: Google does NOT return a new refresh_token on refresh
-      const mergedCredentials = {
-        ...newTokens,
-        refresh_token: currentCredentials.refresh_token, // Always preserve original
-      };
 
       this.client.setCredentials(mergedCredentials);
       await OAuthCredentialStorage.saveCredentials(mergedCredentials);
-      logToFile(`Token refreshed and saved successfully via ${TOKEN_REFRESH_URL ? 'custom refresh URL' : 'cloud function'}`);
+      logToFile(`Token refreshed and saved successfully via ${CLIENT_SECRET ? 'direct Google endpoint' : TOKEN_REFRESH_URL ? 'custom refresh URL' : 'cloud function'}`);
     } catch (error) {
       logToFile(`Error during token refresh: ${error}`);
       throw error;

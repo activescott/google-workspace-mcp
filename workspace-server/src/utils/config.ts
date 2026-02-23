@@ -8,6 +8,8 @@ import { logToFile } from './logger';
 
 export interface WorkspaceConfig {
   clientId: string;
+  /** OAuth client secret. When set, enables direct Google token refresh instead of using the cloud function. */
+  clientSecret: string | null;
   cloudFunctionUrl: string;
   /** Override the token refresh endpoint. When set, token refresh requests go here instead of the cloud function. */
   tokenRefreshUrl: string | null;
@@ -18,6 +20,7 @@ export interface WorkspaceConfig {
 const DEFAULT_CONFIG: WorkspaceConfig = {
   clientId:
     '338689075775-o75k922vn5fdl18qergr96rp8g63e4d7.apps.googleusercontent.com',
+  clientSecret: null,
   cloudFunctionUrl: 'https://google-workspace-extension.geminicli.com',
   // These are null by default — only set when running in headless/container mode
   // where an external system (e.g., an MCP gateway) handles OAuth and injects tokens.
@@ -32,6 +35,7 @@ const DEFAULT_CONFIG: WorkspaceConfig = {
 export function loadConfig(): WorkspaceConfig {
   const config: WorkspaceConfig = {
     clientId: process.env['WORKSPACE_CLIENT_ID'] || DEFAULT_CONFIG.clientId,
+    clientSecret: process.env['WORKSPACE_CLIENT_SECRET'] || DEFAULT_CONFIG.clientSecret,
     cloudFunctionUrl:
       process.env['WORKSPACE_CLOUD_FUNCTION_URL'] ||
       DEFAULT_CONFIG.cloudFunctionUrl,
