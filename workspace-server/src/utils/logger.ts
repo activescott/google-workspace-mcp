@@ -29,14 +29,18 @@ export function setLoggingEnabled(enabled: boolean) {
 }
 
 export function logToFile(message: string) {
+  const timestamp = new Date().toISOString();
+  const logMessage = `${timestamp} - ${message}`;
+
+  // Always log to stderr so container logs are visible in Grafana.
+  // Cannot use stdout — it's reserved for MCP protocol messages (stdio transport).
+  console.error(logMessage);
+
   if (!isLoggingEnabled) {
     return;
   }
-  const timestamp = new Date().toISOString();
-  const logMessage = `${timestamp} - ${message}\n`;
 
-  fs.appendFile(logFilePath, logMessage).catch((err) => {
-    // Fallback to console if file logging fails
+  fs.appendFile(logFilePath, logMessage + '\n').catch((err) => {
     console.error('Failed to write to log file:', err);
   });
 }
