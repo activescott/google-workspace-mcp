@@ -930,13 +930,14 @@ async function main() {
   server.registerTool(
     'gmail.search',
     {
-      description: 'Search for emails in Gmail using query parameters.',
+      description:
+        'Search for emails in Gmail. Returns message IDs only — use gmail.get to retrieve full message content (subject, body, from, etc.).',
       inputSchema: {
         query: z
           .string()
           .optional()
           .describe(
-            'Search query (same syntax as Gmail search box, e.g., "from:someone@example.com is:unread").',
+            'Gmail search query. Date operators: after:YYYY/MM/DD, before:YYYY/MM/DD, older_than:Nd/Nm/Ny, newer_than:Nd/Nm/Ny (d=day, m=month, y=year). Other operators: from:, to:, subject:, is:unread, has:attachment, label:. Example: "after:2026/02/01 before:2026/02/28 from:alice@example.com".',
           ),
         maxResults: z
           .number()
