@@ -42,7 +42,13 @@
     "googleapis": "^171.2.0",
     "jsdom": "^28.0.0",
     "keytar": "^7.9.0",
-    "marked": "^17.0.2"
+    "marked": "^17.0.2",
+    "rehype-parse": "^9.0.1",
+    "rehype-remark": "^10.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-stringify": "^11.0.0",
+    "strip-markdown": "^6.0.0",
+    "unified": "^11.0.5"
   },
   "devDependencies": {
     "@jest/globals": "^30.0.5",

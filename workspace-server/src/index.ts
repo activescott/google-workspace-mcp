@@ -973,6 +973,11 @@ async function main() {
           .enum(['minimal', 'full', 'raw', 'metadata'])
           .optional()
           .describe('Format of the message (default: full).'),
+        bodyFormat: z
+          .enum(['text', 'html', 'markdown'])
+          .describe(
+            'How to return the email body (only applies when format is "full"). "text": strips HTML to plain text. "html": returns raw HTML. "markdown": converts HTML to markdown.',
+          ),
       },
       ...readOnlyToolProps,
     },

@@ -16,6 +16,7 @@ import * as fs from 'node:fs/promises';
 import { GmailService } from '../../services/GmailService';
 import { AuthManager } from '../../auth/AuthManager';
 import { MimeHelper } from '../../utils/MimeHelper';
+import { htmlToText, htmlToMarkdown } from '../../utils/htmlToText';
 import { google } from 'googleapis';
 
 // Mock the modules
@@ -23,6 +24,10 @@ jest.mock('googleapis');
 jest.mock('fs/promises');
 jest.mock('../../utils/logger');
 jest.mock('../../utils/MimeHelper');
+jest.mock('../../utils/htmlToText', () => ({
+  htmlToText: jest.fn((html: string) => Promise.resolve('converted-text: ' + html)),
+  htmlToMarkdown: jest.fn((html: string) => Promise.resolve('converted-markdown: ' + html)),
+}));
 
 describe('GmailService', () => {
   let gmailService: GmailService;
@@ -214,6 +219,7 @@ describe('GmailService', () => {
         id: 'msg1',
         threadId: 'thread1',
         payload: {
+          mimeType: 'text/plain',
           headers: [
             { name: 'From', value: 'sender@example.com' },
             { name: 'To', value: 'recipient@example.com' },
@@ -232,6 +238,7 @@ describe('GmailService', () => {
       const result = await gmailService.get({
         messageId: 'msg1',
         format: 'full',
+        bodyFormat: 'text',
       });
 
       expect(mockGmailAPI.users.messages.get).toHaveBeenCalledWith({
@@ -278,6 +285,7 @@ describe('GmailService', () => {
       const result = await gmailService.get({
         messageId: 'msg_with_attach',
         format: 'full',
+        bodyFormat: 'text',
       });
 
       const response = JSON.parse(result.content[0].text);
@@ -344,6 +352,160 @@ describe('GmailService', () => {
 
       const response = JSON.parse(result.content[0].text);
       expect(response.error).toBe('Message not found');
+    });
+
+    it('should convert HTML body to text when bodyFormat is text and no text/plain part', async () => {
+      const htmlContent = '<h1>Hello</h1><p>World</p>';
+      const mockMessage = {
+        id: 'msg_html',
+        threadId: 'thread1',
+        payload: {
+          headers: [{ name: 'Subject', value: 'HTML Email' }],
+          mimeType: 'text/html',
+          body: {
+            data: Buffer.from(htmlContent).toString('base64'),
+          },
+        },
+      };
+
+      mockGmailAPI.users.messages.get.mockResolvedValue({ data: mockMessage });
+
+      const result = await gmailService.get({
+        messageId: 'msg_html',
+        format: 'full',
+        bodyFormat: 'text',
+      });
+
+      const response = JSON.parse(result.content[0].text);
+      expect(htmlToText).toHaveBeenCalledWith(htmlContent);
+      expect(response.body).toBe('converted-text: ' + htmlContent);
+    });
+
+    it('should convert HTML body to markdown when bodyFormat is markdown', async () => {
+      const htmlContent = '<h1>Title</h1><p>Content</p>';
+      const mockMessage = {
+        id: 'msg_html_md',
+        threadId: 'thread1',
+        payload: {
+          headers: [{ name: 'Subject', value: 'HTML Email' }],
+          mimeType: 'text/html',
+          body: {
+            data: Buffer.from(htmlContent).toString('base64'),
+          },
+        },
+      };
+
+      mockGmailAPI.users.messages.get.mockResolvedValue({ data: mockMessage });
+
+      const result = await gmailService.get({
+        messageId: 'msg_html_md',
+        format: 'full',
+        bodyFormat: 'markdown',
+      });
+
+      const response = JSON.parse(result.content[0].text);
+      expect(htmlToMarkdown).toHaveBeenCalledWith(htmlContent);
+      expect(response.body).toBe('converted-markdown: ' + htmlContent);
+    });
+
+    it('should return raw HTML when bodyFormat is html', async () => {
+      const htmlContent = '<h1>Raw</h1><p>HTML</p>';
+      const mockMessage = {
+        id: 'msg_raw_html',
+        threadId: 'thread1',
+        payload: {
+          headers: [{ name: 'Subject', value: 'HTML Email' }],
+          mimeType: 'text/html',
+          body: {
+            data: Buffer.from(htmlContent).toString('base64'),
+          },
+        },
+      };
+
+      mockGmailAPI.users.messages.get.mockResolvedValue({ data: mockMessage });
+
+      const result = await gmailService.get({
+        messageId: 'msg_raw_html',
+        format: 'full',
+        bodyFormat: 'html',
+      });
+
+      const response = JSON.parse(result.content[0].text);
+      expect(response.body).toBe(htmlContent);
+    });
+
+    it('should use text/plain part directly when bodyFormat is text and text/plain exists', async () => {
+      const mockMessage = {
+        id: 'msg_multipart',
+        threadId: 'thread1',
+        payload: {
+          headers: [{ name: 'Subject', value: 'Multipart Email' }],
+          mimeType: 'multipart/alternative',
+          body: { size: 0 },
+          parts: [
+            {
+              mimeType: 'text/plain',
+              body: { data: Buffer.from('Plain text body').toString('base64') },
+              filename: '',
+            },
+            {
+              mimeType: 'text/html',
+              body: { data: Buffer.from('<p>HTML body</p>').toString('base64') },
+              filename: '',
+            },
+          ],
+        },
+      };
+
+      mockGmailAPI.users.messages.get.mockResolvedValue({ data: mockMessage });
+      (htmlToText as jest.Mock).mockClear();
+
+      const result = await gmailService.get({
+        messageId: 'msg_multipart',
+        format: 'full',
+        bodyFormat: 'text',
+      });
+
+      const response = JSON.parse(result.content[0].text);
+      expect(response.body).toBe('Plain text body');
+      expect(htmlToText).not.toHaveBeenCalled();
+    });
+
+    it('should use htmlToMarkdown for multipart email when bodyFormat is markdown', async () => {
+      const htmlBody = '<p>HTML body</p>';
+      const mockMessage = {
+        id: 'msg_multipart_md',
+        threadId: 'thread1',
+        payload: {
+          headers: [{ name: 'Subject', value: 'Multipart Email' }],
+          mimeType: 'multipart/alternative',
+          body: { size: 0 },
+          parts: [
+            {
+              mimeType: 'text/plain',
+              body: { data: Buffer.from('Plain text body').toString('base64') },
+              filename: '',
+            },
+            {
+              mimeType: 'text/html',
+              body: { data: Buffer.from(htmlBody).toString('base64') },
+              filename: '',
+            },
+          ],
+        },
+      };
+
+      mockGmailAPI.users.messages.get.mockResolvedValue({ data: mockMessage });
+
+      const result = await gmailService.get({
+        messageId: 'msg_multipart_md',
+        format: 'full',
+        bodyFormat: 'markdown',
+      });
+
+      const response = JSON.parse(result.content[0].text);
+      expect(htmlToMarkdown).toHaveBeenCalledWith(htmlBody);
+      expect(response.body).toBe('converted-markdown: ' + htmlBody);
     });
   });
 

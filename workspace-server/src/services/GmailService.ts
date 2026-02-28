@@ -9,6 +9,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { AuthManager } from '../auth/AuthManager';
 import { logToFile } from '../utils/logger';
+import { htmlToMarkdown, htmlToText } from '../utils/htmlToText';
 import { MimeHelper } from '../utils/MimeHelper';
 import { GMAIL_SEARCH_MAX_RESULTS } from '../utils/constants';
 import { gaxiosOptions } from '../utils/GaxiosConfig';
@@ -121,12 +122,14 @@ export class GmailService {
   public get = async ({
     messageId,
     format = 'full',
+    bodyFormat = 'text',
   }: {
     messageId: string;
     format?: 'minimal' | 'full' | 'raw' | 'metadata';
+    bodyFormat?: 'text' | 'html' | 'markdown';
   }) => {
     try {
-      logToFile(`Getting message ${messageId} with format: ${format}`);
+      logToFile(`Getting message ${messageId} with format: ${format}, bodyFormat: ${bodyFormat}`);
 
       const gmail = await this.getGmailClient();
       const response = await gmail.users.messages.get({
@@ -153,8 +156,8 @@ export class GmailService {
         let attachments: GmailAttachment[] = [];
         if (format === 'full' && message.payload) {
           const result = this.extractAttachmentsAndBody(message.payload);
-          body = result.body;
           attachments = result.attachments;
+          body = await this.selectBody(result.textBody, result.htmlBody, bodyFormat);
         }
 
         return {
@@ -585,10 +588,30 @@ export class GmailService {
     }
   };
 
+  private async selectBody(
+    textBody: string,
+    htmlBody: string,
+    bodyFormat: 'text' | 'html' | 'markdown',
+  ): Promise<string> {
+    switch (bodyFormat) {
+      case 'text':
+        return textBody || (htmlBody ? await htmlToText(htmlBody) : '');
+      case 'markdown':
+        return htmlBody ? await htmlToMarkdown(htmlBody) : textBody;
+      case 'html':
+        return htmlBody || textBody;
+    }
+  }
+
   private extractAttachmentsAndBody(
     payload: gmail_v1.Schema$MessagePart,
-    result: { body: string; attachments: GmailAttachment[] } = {
-      body: '',
+    result: {
+      textBody: string;
+      htmlBody: string;
+      attachments: GmailAttachment[];
+    } = {
+      textBody: '',
+      htmlBody: '',
       attachments: [],
     },
   ) {
@@ -598,13 +621,14 @@ export class GmailService {
     if (payload.body?.data) {
       // If it's the main body (and not an attachment)
       if (!payload.filename || !payload.body.attachmentId) {
-        if (payload.mimeType?.startsWith('text/')) {
-          // Prioritize plain text over HTML for direct body extraction
-          if (!result.body || payload.mimeType === 'text/plain') {
-            result.body = Buffer.from(payload.body.data, 'base64').toString(
-              'utf-8',
-            );
-          }
+        if (payload.mimeType === 'text/plain' && !result.textBody) {
+          result.textBody = Buffer.from(payload.body.data, 'base64').toString(
+            'utf-8',
+          );
+        } else if (payload.mimeType === 'text/html' && !result.htmlBody) {
+          result.htmlBody = Buffer.from(payload.body.data, 'base64').toString(
+            'utf-8',
+          );
         }
       }
     }
