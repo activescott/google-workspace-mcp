@@ -20,13 +20,14 @@ describe('createStructuredResponse', () => {
     expect(result.structuredContent).toEqual(data);
   });
 
-  it('should omit structuredContent when data fails validation', () => {
+  it('should include raw data as structuredContent when validation fails', () => {
     const data = { id: 123, name: 'Test' }; // id is number, not string
     const result = createStructuredResponse(data, schema, 'test.tool');
 
     expect(result.content).toHaveLength(1);
     expect(JSON.parse(result.content[0].text)).toEqual(data);
-    expect(result.structuredContent).toBeUndefined();
+    // Always includes structuredContent so MCP SDK doesn't reject the response
+    expect(result.structuredContent).toEqual(data);
   });
 
   it('should handle passthrough schemas for extra fields', () => {
