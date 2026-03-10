@@ -8,6 +8,17 @@ import { calendar_v3, google } from 'googleapis';
 import { logToFile } from '../utils/logger';
 import { gaxiosOptions } from '../utils/GaxiosConfig';
 import { iso8601DateTimeSchema, emailArraySchema } from '../utils/validation';
+import { createStructuredResponse } from '../utils/structured-response';
+import {
+  calendarListOutputSchema,
+  calendarListEventsOutputSchema,
+  calendarGetEventOutputSchema,
+  calendarCreateEventOutputSchema,
+  calendarUpdateEventOutputSchema,
+  calendarDeleteEventOutputSchema,
+  calendarRespondOutputSchema,
+  calendarFindFreeTimeOutputSchema,
+} from './calendar-schemas';
 import { z } from 'zod';
 
 export interface CreateEventInput {
@@ -133,16 +144,10 @@ export class CalendarService {
       logToFile(
         `Returning calendar data: ${JSON.stringify(calendars.map((c) => ({ id: c?.id, summary: c?.summary })))}`,
       );
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              calendars.map((c) => ({ id: c?.id, summary: c?.summary })),
-            ),
-          },
-        ],
+      const data = {
+        items: calendars.map((c) => ({ id: c?.id, summary: c?.summary })),
       };
+      return createStructuredResponse(data, calendarListOutputSchema, 'calendar.list');
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -193,14 +198,7 @@ export class CalendarService {
         requestBody: event,
       });
       logToFile(`Successfully created event: ${res.data.id}`);
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(res.data),
-          },
-        ],
-      };
+      return createStructuredResponse(res.data, calendarCreateEventOutputSchema, 'calendar.createEvent');
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -262,14 +260,8 @@ export class CalendarService {
         });
 
       logToFile(`Found ${events?.length} events after filtering.`);
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(events),
-          },
-        ],
-      };
+      const data = { items: events || [] };
+      return createStructuredResponse(data, calendarListEventsOutputSchema, 'calendar.listEvents');
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -296,14 +288,7 @@ export class CalendarService {
         eventId,
       });
       logToFile(`Successfully retrieved event: ${res.data.id}`);
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(res.data),
-          },
-        ],
-      };
+      return createStructuredResponse(res.data, calendarGetEventOutputSchema, 'calendar.getEvent');
     } catch (error) {
       const errorMessage =
         (error as any).response?.data?.error?.message ||
@@ -333,16 +318,8 @@ export class CalendarService {
       });
 
       logToFile(`Successfully deleted event: ${eventId}`);
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              message: `Successfully deleted event ${eventId}`,
-            }),
-          },
-        ],
-      };
+      const data = { message: `Successfully deleted event ${eventId}` };
+      return createStructuredResponse(data, calendarDeleteEventOutputSchema, 'calendar.deleteEvent');
     } catch (error) {
       const errorMessage =
         (error as any).response?.data?.error?.message ||
@@ -400,14 +377,7 @@ export class CalendarService {
       });
 
       logToFile(`Successfully updated event: ${res.data.id}`);
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(res.data),
-          },
-        ],
-      };
+      return createStructuredResponse(res.data, calendarUpdateEventOutputSchema, 'calendar.updateEvent');
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -497,19 +467,13 @@ export class CalendarService {
         `Successfully responded to event: ${res.data.id} with status: ${responseStatus}`,
       );
 
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              eventId: res.data.id,
-              summary: res.data.summary,
-              responseStatus,
-              message: `Successfully ${responseStatus} the meeting invitation${responseMessage ? ' with message' : ''}`,
-            }),
-          },
-        ],
+      const data = {
+        eventId: res.data.id,
+        summary: res.data.summary,
+        responseStatus,
+        message: `Successfully ${responseStatus} the meeting invitation${responseMessage ? ' with message' : ''}`,
       };
+      return createStructuredResponse(data, calendarRespondOutputSchema, 'calendar.respondToEvent');
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -568,19 +532,13 @@ export class CalendarService {
         logToFile(
           'No busy times found, returning the start of the time range.',
         );
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({
-                start: timeMin,
-                end: new Date(
-                  new Date(timeMin).getTime() + duration * 60000,
-                ).toISOString(),
-              }),
-            },
-          ],
+        const data = {
+          start: timeMin,
+          end: new Date(
+            new Date(timeMin).getTime() + duration * 60000,
+          ).toISOString(),
         };
+        return createStructuredResponse(data, calendarFindFreeTimeOutputSchema, 'calendar.findFreeTime');
       }
 
       // Sort and merge overlapping busy intervals for better performance
@@ -617,34 +575,16 @@ export class CalendarService {
         logToFile(
           `No busy times, found free time: ${timeMin} - ${slotEnd.toISOString()}`,
         );
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({
-                start: timeMin,
-                end: slotEnd.toISOString(),
-              }),
-            },
-          ],
-        };
+        const data = { start: timeMin, end: slotEnd.toISOString() };
+        return createStructuredResponse(data, calendarFindFreeTimeOutputSchema, 'calendar.findFreeTime');
       }
 
       // Check if we can fit the meeting before the first busy slot
       if (startTime + durationMs <= mergedBusyTimes[0].start) {
         const slotEnd = new Date(startTime + durationMs);
         logToFile(`Found free time: ${timeMin} - ${slotEnd.toISOString()}`);
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({
-                start: timeMin,
-                end: slotEnd.toISOString(),
-              }),
-            },
-          ],
-        };
+        const data = { start: timeMin, end: slotEnd.toISOString() };
+        return createStructuredResponse(data, calendarFindFreeTimeOutputSchema, 'calendar.findFreeTime');
       }
 
       // Check gaps between busy slots
@@ -658,17 +598,8 @@ export class CalendarService {
           logToFile(
             `Found free time: ${slotStart.toISOString()} - ${slotEnd.toISOString()}`,
           );
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  start: slotStart.toISOString(),
-                  end: slotEnd.toISOString(),
-                }),
-              },
-            ],
-          };
+          const data = { start: slotStart.toISOString(), end: slotEnd.toISOString() };
+          return createStructuredResponse(data, calendarFindFreeTimeOutputSchema, 'calendar.findFreeTime');
         }
       }
 
@@ -680,17 +611,8 @@ export class CalendarService {
         logToFile(
           `Found free time: ${slotStart.toISOString()} - ${slotEnd.toISOString()}`,
         );
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({
-                start: slotStart.toISOString(),
-                end: slotEnd.toISOString(),
-              }),
-            },
-          ],
-        };
+        const data = { start: slotStart.toISOString(), end: slotEnd.toISOString() };
+        return createStructuredResponse(data, calendarFindFreeTimeOutputSchema, 'calendar.findFreeTime');
       }
 
       logToFile('No available free time found');

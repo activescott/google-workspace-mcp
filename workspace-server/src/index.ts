@@ -15,6 +15,27 @@ import { DriveService } from './services/DriveService';
 import { CalendarService } from './services/CalendarService';
 import { ChatService } from './services/ChatService';
 import { GmailService } from './services/GmailService';
+import {
+  gmailSearchOutputSchema,
+  gmailGetOutputSchema,
+  gmailDownloadAttachmentOutputSchema,
+  gmailModifyOutputSchema,
+  gmailSendOutputSchema,
+  gmailCreateDraftOutputSchema,
+  gmailSendDraftOutputSchema,
+  gmailListLabelsOutputSchema,
+  gmailCreateLabelOutputSchema,
+} from './services/gmail-schemas';
+import {
+  calendarListOutputSchema,
+  calendarListEventsOutputSchema,
+  calendarGetEventOutputSchema,
+  calendarCreateEventOutputSchema,
+  calendarUpdateEventOutputSchema,
+  calendarDeleteEventOutputSchema,
+  calendarRespondOutputSchema,
+  calendarFindFreeTimeOutputSchema,
+} from './services/calendar-schemas';
 import { TimeService } from './services/TimeService';
 import { PeopleService } from './services/PeopleService';
 import { SlidesService } from './services/SlidesService';
@@ -559,6 +580,7 @@ async function main() {
     {
       description: "Lists all of the user's calendars.",
       inputSchema: {},
+      outputSchema: calendarListOutputSchema,
       ...readOnlyToolProps,
     },
     calendarService.listCalendars,
@@ -568,6 +590,7 @@ async function main() {
     'calendar.createEvent',
     {
       description: 'Creates a new event in a calendar.',
+      outputSchema: calendarCreateEventOutputSchema,
       inputSchema: {
         calendarId: z
           .string()
@@ -604,6 +627,7 @@ async function main() {
     'calendar.listEvents',
     {
       description: 'Lists events from a calendar. Defaults to upcoming events.',
+      outputSchema: calendarListEventsOutputSchema,
       inputSchema: {
         calendarId: z
           .string()
@@ -632,6 +656,7 @@ async function main() {
     'calendar.getEvent',
     {
       description: 'Gets the details of a specific calendar event.',
+      outputSchema: calendarGetEventOutputSchema,
       inputSchema: {
         eventId: z.string().describe('The ID of the event to retrieve.'),
         calendarId: z
@@ -650,6 +675,7 @@ async function main() {
     'calendar.findFreeTime',
     {
       description: 'Finds a free time slot for multiple people to meet.',
+      outputSchema: calendarFindFreeTimeOutputSchema,
       inputSchema: {
         attendees: z
           .array(z.string())
@@ -677,6 +703,7 @@ async function main() {
     'calendar.updateEvent',
     {
       description: 'Updates an existing event in a calendar.',
+      outputSchema: calendarUpdateEventOutputSchema,
       inputSchema: {
         eventId: z.string().describe('The ID of the event to update.'),
         calendarId: z
@@ -723,6 +750,7 @@ async function main() {
     {
       description:
         'Responds to a meeting invitation (accept, decline, or tentative).',
+      outputSchema: calendarRespondOutputSchema,
       inputSchema: {
         eventId: z.string().describe('The ID of the event to respond to.'),
         calendarId: z
@@ -751,6 +779,7 @@ async function main() {
     'calendar.deleteEvent',
     {
       description: 'Deletes an event from a calendar.',
+      outputSchema: calendarDeleteEventOutputSchema,
       inputSchema: {
         eventId: z.string().describe('The ID of the event to delete.'),
         calendarId: z
@@ -932,6 +961,7 @@ async function main() {
     {
       description:
         'Search for emails in Gmail. Returns message IDs only — use gmail.get to retrieve full message content (subject, body, from, etc.).',
+      outputSchema: gmailSearchOutputSchema,
       inputSchema: {
         query: z
           .string()
@@ -967,6 +997,7 @@ async function main() {
     'gmail.get',
     {
       description: 'Get the full content of a specific email message.',
+      outputSchema: gmailGetOutputSchema,
       inputSchema: {
         messageId: z.string().describe('The ID of the message to retrieve.'),
         format: z
@@ -989,6 +1020,7 @@ async function main() {
     {
       description:
         'Downloads an attachment from a Gmail message to a local file.',
+      outputSchema: gmailDownloadAttachmentOutputSchema,
       inputSchema: {
         messageId: z
           .string()
@@ -1019,6 +1051,7 @@ There are a list of system labels that can be modified on a message:
     - UNREAD: removing UNREAD label marks a message as read.
     - STARRED: adding STARRED label marks a message as starred.
     - IMPORTANT: adding IMPORTANT label marks a message as important.`,
+      outputSchema: gmailModifyOutputSchema,
       inputSchema: {
         messageId: z
           .string()
@@ -1048,6 +1081,7 @@ There are a list of system labels that can be modified on a message:
     'gmail.send',
     {
       description: 'Send an email message.',
+      outputSchema: gmailSendOutputSchema,
       inputSchema: emailComposeSchema,
     },
     gmailService.send,
@@ -1057,6 +1091,7 @@ There are a list of system labels that can be modified on a message:
     'gmail.createDraft',
     {
       description: 'Create a draft email message.',
+      outputSchema: gmailCreateDraftOutputSchema,
       inputSchema: {
         ...emailComposeSchema,
         threadId: z
@@ -1074,6 +1109,7 @@ There are a list of system labels that can be modified on a message:
     'gmail.sendDraft',
     {
       description: 'Send a previously created draft email.',
+      outputSchema: gmailSendDraftOutputSchema,
       inputSchema: {
         draftId: z.string().describe('The ID of the draft to send.'),
       },
@@ -1085,6 +1121,7 @@ There are a list of system labels that can be modified on a message:
     'gmail.listLabels',
     {
       description: "List all Gmail labels in the user's mailbox.",
+      outputSchema: gmailListLabelsOutputSchema,
       inputSchema: {},
       ...readOnlyToolProps,
     },
@@ -1096,6 +1133,7 @@ There are a list of system labels that can be modified on a message:
     {
       description:
         'Create a new Gmail label. Labels help organize emails into categories.',
+      outputSchema: gmailCreateLabelOutputSchema,
       inputSchema: {
         name: z.string().min(1).describe('The display name of the label.'),
         labelListVisibility: z

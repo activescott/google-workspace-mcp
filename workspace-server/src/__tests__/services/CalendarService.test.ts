@@ -83,10 +83,12 @@ describe('CalendarService', () => {
 
       expect(mockCalendarAPI.calendarList.list).toHaveBeenCalledTimes(1);
 
-      const expectedResult = mockCalendars.map((c) => ({
-        id: c.id,
-        summary: c.summary,
-      }));
+      const expectedResult = {
+        items: mockCalendars.map((c) => ({
+          id: c.id,
+          summary: c.summary,
+        })),
+      };
       expect(JSON.parse(result.content[0].text)).toEqual(expectedResult);
     });
 
@@ -100,7 +102,7 @@ describe('CalendarService', () => {
       const result = await calendarService.listCalendars();
 
       expect(mockCalendarAPI.calendarList.list).toHaveBeenCalledTimes(1);
-      expect(JSON.parse(result.content[0].text)).toEqual([]);
+      expect(JSON.parse(result.content[0].text)).toEqual({ items: [] });
     });
 
     it('should handle API errors gracefully', async () => {
@@ -121,7 +123,7 @@ describe('CalendarService', () => {
 
       const result = await calendarService.listCalendars();
 
-      expect(JSON.parse(result.content[0].text)).toEqual([]);
+      expect(JSON.parse(result.content[0].text)).toEqual({ items: [] });
     });
   });
 
@@ -304,7 +306,7 @@ describe('CalendarService', () => {
           'items(id,summary,start,end,description,htmlLink,attendees,status)',
       });
 
-      expect(JSON.parse(result.content[0].text)).toEqual(mockEvents);
+      expect(JSON.parse(result.content[0].text)).toEqual({ items: mockEvents });
     });
 
     it('should list events for a calendar', async () => {
@@ -346,7 +348,7 @@ describe('CalendarService', () => {
           'items(id,summary,start,end,description,htmlLink,attendees,status)',
       });
 
-      expect(JSON.parse(result.content[0].text)).toEqual(mockEvents);
+      expect(JSON.parse(result.content[0].text)).toEqual({ items: mockEvents });
     });
 
     it('should list events with a default timeMax', async () => {
@@ -384,7 +386,7 @@ describe('CalendarService', () => {
         }),
       );
 
-      expect(JSON.parse(result.content[0].text)).toEqual(mockEvents);
+      expect(JSON.parse(result.content[0].text)).toEqual({ items: mockEvents });
     });
 
     it('should filter out cancelled events', async () => {
@@ -417,8 +419,8 @@ describe('CalendarService', () => {
       });
 
       const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult).toHaveLength(2);
-      expect(parsedResult.map((e: any) => e.id)).toEqual(['event1', 'event3']);
+      expect(parsedResult.items).toHaveLength(2);
+      expect(parsedResult.items.map((e: any) => e.id)).toEqual(['event1', 'event3']);
     });
 
     it('should filter events based on attendee response status', async () => {
@@ -467,8 +469,8 @@ describe('CalendarService', () => {
       });
 
       const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult).toHaveLength(2);
-      expect(parsedResult.map((e: any) => e.id)).toEqual(['event1', 'event3']);
+      expect(parsedResult.items).toHaveLength(2);
+      expect(parsedResult.items.map((e: any) => e.id)).toEqual(['event1', 'event3']);
     });
 
     it('should include events with no attendees', async () => {
@@ -500,7 +502,7 @@ describe('CalendarService', () => {
       });
 
       const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult).toHaveLength(2);
+      expect(parsedResult.items).toHaveLength(2);
     });
 
     it('should filter out events without summary', async () => {
@@ -533,8 +535,8 @@ describe('CalendarService', () => {
       });
 
       const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult).toHaveLength(1);
-      expect(parsedResult[0].id).toBe('event1');
+      expect(parsedResult.items).toHaveLength(1);
+      expect(parsedResult.items[0].id).toBe('event1');
     });
 
     it('should handle API errors gracefully', async () => {
@@ -561,7 +563,7 @@ describe('CalendarService', () => {
         calendarId: 'primary',
       });
 
-      expect(JSON.parse(result.content[0].text)).toEqual([]);
+      expect(JSON.parse(result.content[0].text)).toEqual({ items: [] });
     });
 
     it('should use default attendeeResponseStatus when not provided', async () => {

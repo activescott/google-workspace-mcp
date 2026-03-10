@@ -14,6 +14,19 @@ import { MimeHelper } from '../utils/MimeHelper';
 import { GMAIL_SEARCH_MAX_RESULTS } from '../utils/constants';
 import { gaxiosOptions } from '../utils/GaxiosConfig';
 import { emailArraySchema } from '../utils/validation';
+import { createStructuredResponse } from '../utils/structured-response';
+import {
+  gmailSearchOutputSchema,
+  gmailGetOutputSchema,
+  gmailGetRawOutputSchema,
+  gmailDownloadAttachmentOutputSchema,
+  gmailModifyOutputSchema,
+  gmailSendOutputSchema,
+  gmailCreateDraftOutputSchema,
+  gmailSendDraftOutputSchema,
+  gmailListLabelsOutputSchema,
+  gmailCreateLabelOutputSchema,
+} from './gmail-schemas';
 
 // Type definitions for email parameters
 type SendEmailParams = {
@@ -95,25 +108,15 @@ export class GmailService {
         `Found ${messages.length} messages, estimated total: ${resultSizeEstimate}`,
       );
 
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                messages: messages.map((msg) => ({
-                  id: msg.id,
-                  threadId: msg.threadId,
-                })),
-                nextPageToken,
-                resultSizeEstimate,
-              },
-              null,
-              2,
-            ),
-          },
-        ],
+      const data = {
+        messages: messages.map((msg) => ({
+          id: msg.id,
+          threadId: msg.threadId,
+        })),
+        nextPageToken,
+        resultSizeEstimate,
       };
+      return createStructuredResponse(data, gmailSearchOutputSchema, 'gmail.search');
     } catch (error) {
       return this.handleError(error, 'gmail.search');
     }
@@ -160,39 +163,22 @@ export class GmailService {
           body = await this.selectBody(result.textBody, result.htmlBody, bodyFormat);
         }
 
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify(
-                {
-                  id: message.id,
-                  threadId: message.threadId,
-                  labelIds: message.labelIds,
-                  snippet: message.snippet,
-                  subject,
-                  from,
-                  to,
-                  date,
-                  body: body || message.snippet,
-                  attachments: attachments,
-                },
-                null,
-                2,
-              ),
-            },
-          ],
+        const data = {
+          id: message.id,
+          threadId: message.threadId,
+          labelIds: message.labelIds,
+          snippet: message.snippet,
+          subject,
+          from,
+          to,
+          date,
+          body: body || message.snippet,
+          attachments: attachments,
         };
+        return createStructuredResponse(data, gmailGetOutputSchema, 'gmail.get');
       }
 
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(message, null, 2),
-          },
-        ],
-      };
+      return createStructuredResponse(message, gmailGetRawOutputSchema, 'gmail.get');
     } catch (error) {
       return this.handleError(error, 'gmail.get');
     }
@@ -237,17 +223,11 @@ export class GmailService {
 
       logToFile(`Attachment downloaded successfully to ${localPath}`);
 
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              message: `Attachment downloaded successfully to ${localPath}`,
-              path: localPath,
-            }),
-          },
-        ],
+      const responseData = {
+        message: `Attachment downloaded successfully to ${localPath}`,
+        path: localPath,
       };
+      return createStructuredResponse(responseData, gmailDownloadAttachmentOutputSchema, 'gmail.downloadAttachment');
     } catch (error) {
       return this.handleError(error, 'gmail.downloadAttachment');
     }
@@ -278,14 +258,7 @@ export class GmailService {
       });
 
       const message = response.data;
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(message, null, 2),
-          },
-        ],
-      };
+      return createStructuredResponse(message, gmailModifyOutputSchema, 'gmail.modify');
     } catch (error) {
       return this.handleError(error, 'gmail.modify');
     }
@@ -342,23 +315,13 @@ export class GmailService {
 
       logToFile(`Email sent successfully: ${response.data.id}`);
 
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                id: response.data.id,
-                threadId: response.data.threadId,
-                labelIds: response.data.labelIds,
-                status: 'sent',
-              },
-              null,
-              2,
-            ),
-          },
-        ],
+      const data = {
+        id: response.data.id,
+        threadId: response.data.threadId,
+        labelIds: response.data.labelIds,
+        status: 'sent' as const,
       };
+      return createStructuredResponse(data, gmailSendOutputSchema, 'gmail.send');
     } catch (error) {
       return this.handleError(error, 'gmail.send');
     }
@@ -438,26 +401,16 @@ export class GmailService {
 
       logToFile(`Draft created successfully: ${response.data.id}`);
 
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                id: response.data.id,
-                message: {
-                  id: response.data.message?.id,
-                  threadId: response.data.message?.threadId,
-                  labelIds: response.data.message?.labelIds,
-                },
-                status: 'draft_created',
-              },
-              null,
-              2,
-            ),
-          },
-        ],
+      const data = {
+        id: response.data.id,
+        message: {
+          id: response.data.message?.id,
+          threadId: response.data.message?.threadId,
+          labelIds: response.data.message?.labelIds,
+        },
+        status: 'draft_created' as const,
       };
+      return createStructuredResponse(data, gmailCreateDraftOutputSchema, 'gmail.createDraft');
     } catch (error) {
       return this.handleError(error, 'gmail.createDraft');
     }
@@ -477,23 +430,13 @@ export class GmailService {
 
       logToFile(`Draft sent successfully: ${response.data.id}`);
 
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                id: response.data.id,
-                threadId: response.data.threadId,
-                labelIds: response.data.labelIds,
-                status: 'sent',
-              },
-              null,
-              2,
-            ),
-          },
-        ],
+      const data = {
+        id: response.data.id,
+        threadId: response.data.threadId,
+        labelIds: response.data.labelIds,
+        status: 'sent' as const,
       };
+      return createStructuredResponse(data, gmailSendDraftOutputSchema, 'gmail.sendDraft');
     } catch (error) {
       return this.handleError(error, 'gmail.sendDraft');
     }
@@ -512,26 +455,16 @@ export class GmailService {
 
       logToFile(`Found ${labels.length} labels`);
 
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                labels: labels.map((label) => ({
-                  id: label.id,
-                  name: label.name,
-                  type: label.type,
-                  messageListVisibility: label.messageListVisibility,
-                  labelListVisibility: label.labelListVisibility,
-                })),
-              },
-              null,
-              2,
-            ),
-          },
-        ],
+      const data = {
+        labels: labels.map((label) => ({
+          id: label.id,
+          name: label.name,
+          type: label.type,
+          messageListVisibility: label.messageListVisibility,
+          labelListVisibility: label.labelListVisibility,
+        })),
       };
+      return createStructuredResponse(data, gmailListLabelsOutputSchema, 'gmail.listLabels');
     } catch (error) {
       return this.handleError(error, 'gmail.listLabels');
     }
@@ -564,25 +497,15 @@ export class GmailService {
 
       logToFile(`Created label: ${label.name} with id: ${label.id}`);
 
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                id: label.id,
-                name: label.name,
-                type: label.type,
-                messageListVisibility: label.messageListVisibility,
-                labelListVisibility: label.labelListVisibility,
-                status: 'created',
-              },
-              null,
-              2,
-            ),
-          },
-        ],
+      const data = {
+        id: label.id,
+        name: label.name,
+        type: label.type,
+        messageListVisibility: label.messageListVisibility,
+        labelListVisibility: label.labelListVisibility,
+        status: 'created' as const,
       };
+      return createStructuredResponse(data, gmailCreateLabelOutputSchema, 'gmail.createLabel');
     } catch (error) {
       return this.handleError(error, 'gmail.createLabel');
     }
