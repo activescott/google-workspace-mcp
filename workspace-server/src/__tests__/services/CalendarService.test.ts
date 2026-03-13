@@ -303,7 +303,7 @@ describe('CalendarService', () => {
         timeMax: '2024-01-16T00:00:00Z',
         singleEvents: true,
         fields:
-          'items(id,summary,start,end,description,htmlLink,attendees,status)',
+          'items(id,summary,start,end,description,htmlLink,attendees,status,recurringEventId)',
       });
 
       expect(JSON.parse(result.content[0].text)).toEqual({ items: mockEvents });
@@ -345,7 +345,7 @@ describe('CalendarService', () => {
         timeMax: '2024-01-16T00:00:00Z',
         singleEvents: true,
         fields:
-          'items(id,summary,start,end,description,htmlLink,attendees,status)',
+          'items(id,summary,start,end,description,htmlLink,attendees,status,recurringEventId)',
       });
 
       expect(JSON.parse(result.content[0].text)).toEqual({ items: mockEvents });

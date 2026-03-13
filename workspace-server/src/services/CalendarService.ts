@@ -238,7 +238,7 @@ export class CalendarService {
         timeMax,
         singleEvents: true,
         fields:
-          'items(id,summary,start,end,description,htmlLink,attendees,status)',
+          'items(id,summary,start,end,description,htmlLink,attendees,status,recurringEventId)',
       });
 
       const events = res.data.items

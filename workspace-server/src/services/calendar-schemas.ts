@@ -34,6 +34,7 @@ const calendarEventSchema = z.object({
   htmlLink: z.string().nullable().optional(),
   status: z.string().nullable().optional(),
   attendees: z.array(calendarAttendeeSchema).nullable().optional(),
+  recurringEventId: z.string().nullable().optional(),
 }).passthrough();
 
 export const calendarListEventsOutputSchema = z.object({
