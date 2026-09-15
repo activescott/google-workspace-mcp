@@ -15,16 +15,22 @@ module.exports = {
           {
             tsconfig: {
               strict: false,
+              types: ['jest', 'node'],
+              // Match the production build (module: commonjs, node10) so the
+              // exports-map "import" condition is ignored. Without this,
+              // ts-jest >= 29.4.10 resolves gaxios's ESM type declarations for
+              // bare imports while googleapis-common resolves the CJS ones,
+              // producing spurious GaxiosOptions/GaxiosError type clashes.
+              module: 'commonjs',
+              moduleResolution: 'node10',
             },
           },
         ],
       },
-      transformIgnorePatterns: ['node_modules/(?!(marked)/)'],
+      transformIgnorePatterns: ['node_modules/'],
       moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/workspace-server/src/$1',
         '\\.wasm$': '<rootDir>/workspace-server/src/__tests__/mocks/wasm.js',
-        '^marked$': '<rootDir>/workspace-server/src/__tests__/mocks/marked.js',
-        '^jsdom$': '<rootDir>/workspace-server/src/__tests__/mocks/jsdom.ts',
       },
       roots: ['<rootDir>/workspace-server/src'],
       setupFilesAfterEnv: ['<rootDir>/workspace-server/src/__tests__/setup.ts'],
