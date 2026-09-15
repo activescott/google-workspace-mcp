@@ -4,10 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import crypto from 'node:crypto';
 import { calendar_v3, google } from 'googleapis';
 import { logToFile } from '../utils/logger';
 import { gaxiosOptions } from '../utils/GaxiosConfig';
-import { iso8601DateTimeSchema, emailArraySchema } from '../utils/validation';
+import { iso8601DateTimeSchema } from '../utils/validation';
 import { createStructuredResponse } from '../utils/structured-response';
 import {
   calendarListOutputSchema,
@@ -19,15 +20,61 @@ import {
   calendarRespondOutputSchema,
   calendarFindFreeTimeOutputSchema,
 } from './calendar-schemas';
+import {
+  validateCreateEventInput,
+  validateUpdateEventInput,
+} from './CalendarValidation';
 import { z } from 'zod';
+
+/**
+ * Google Drive file attachment for calendar events.
+ * Attachments are fully replaced (not appended) when provided.
+ */
+interface EventAttachment {
+  fileUrl: string;
+  title?: string;
+  mimeType?: string;
+}
+
+export type CalendarEventType =
+  | 'default'
+  | 'focusTime'
+  | 'outOfOffice'
+  | 'workingLocation';
+
+export type ListEventsEventType = CalendarEventType | 'birthday' | 'fromGmail';
 
 export interface CreateEventInput {
   calendarId?: string;
-  summary: string;
+  summary?: string;
   description?: string;
-  start: { dateTime: string };
-  end: { dateTime: string };
+  start: { dateTime?: string; date?: string };
+  end: { dateTime?: string; date?: string };
   attendees?: string[];
+  sendUpdates?: 'all' | 'externalOnly' | 'none';
+  addGoogleMeet?: boolean;
+  attachments?: EventAttachment[];
+  eventType?: CalendarEventType;
+  focusTimeProperties?: {
+    chatStatus?: 'available' | 'doNotDisturb';
+    autoDeclineMode?:
+      | 'declineNone'
+      | 'declineAllConflictingInvitations'
+      | 'declineOnlyNewConflictingInvitations';
+    declineMessage?: string;
+  };
+  outOfOfficeProperties?: {
+    autoDeclineMode?:
+      | 'declineNone'
+      | 'declineAllConflictingInvitations'
+      | 'declineOnlyNewConflictingInvitations';
+    declineMessage?: string;
+  };
+  workingLocationProperties?: {
+    type: 'homeOffice' | 'officeLocation' | 'customLocation';
+    officeLocation?: { buildingId?: string; label?: string };
+    customLocation?: { label: string };
+  };
 }
 
 export interface ListEventsInput {
@@ -35,6 +82,7 @@ export interface ListEventsInput {
   timeMin?: string;
   timeMax?: string;
   attendeeResponseStatus?: string[];
+  eventTypes?: ListEventsEventType[];
 }
 
 export interface GetEventInput {
@@ -52,9 +100,11 @@ export interface UpdateEventInput {
   calendarId?: string;
   summary?: string;
   description?: string;
-  start?: { dateTime: string };
-  end?: { dateTime: string };
+  start?: { dateTime?: string; date?: string };
+  end?: { dateTime?: string; date?: string };
   attendees?: string[];
+  addGoogleMeet?: boolean;
+  attachments?: EventAttachment[];
 }
 
 export interface RespondToEventInput {
@@ -77,9 +127,54 @@ export class CalendarService {
 
   constructor(private authManager: any) {}
 
+  /**
+   * Adds conferenceData and attachments to an event body and its API params.
+   *
+   * IMPORTANT: Attachments are fully REPLACED, not appended. When attachments
+   * are provided, any existing attachments on the event will be removed.
+   */
+  private applyMeetAndAttachments(
+    event: calendar_v3.Schema$Event,
+    params: { conferenceDataVersion?: number; supportsAttachments?: boolean },
+    addGoogleMeet?: boolean,
+    attachments?: EventAttachment[],
+    options?: { allowEmptyAttachments?: boolean },
+  ): void {
+    if (addGoogleMeet) {
+      event.conferenceData = {
+        createRequest: {
+          requestId: crypto.randomUUID(),
+          conferenceSolutionKey: { type: 'hangoutsMeet' },
+        },
+      };
+      params.conferenceDataVersion = 1;
+    }
+    if (
+      attachments &&
+      (attachments.length > 0 || options?.allowEmptyAttachments)
+    ) {
+      event.attachments = attachments.map((a) => ({
+        fileUrl: a.fileUrl,
+        title: a.title,
+        mimeType: a.mimeType,
+      }));
+      params.supportsAttachments = true;
+    }
+  }
+
   private createValidationErrorResponse(error: unknown) {
     const errorMessage =
-      error instanceof Error ? error.message : 'Validation failed';
+      error instanceof z.ZodError
+        ? error.issues
+            .map((issue) =>
+              issue.path.length
+                ? `${issue.path.join('.')}: ${issue.message}`
+                : issue.message,
+            )
+            .join('; ')
+        : error instanceof Error
+          ? error.message
+          : 'Validation failed';
     let helpMessage =
       'Please use strict ISO 8601 format with seconds and timezone. Examples: 2024-01-15T10:30:00Z (UTC) or 2024-01-15T10:30:00-05:00 (EST)';
 
@@ -105,6 +200,61 @@ export class CalendarService {
         },
       ],
     };
+  }
+
+  private extractErrorMessage(error: unknown): string {
+    const details = (
+      error as {
+        response?: {
+          data?: {
+            error?: {
+              message?: string;
+              code?: number;
+              errors?: Array<{
+                domain?: string;
+                reason?: string;
+                message?: string;
+                location?: string;
+                locationType?: string;
+              }>;
+            };
+          };
+        };
+      }
+    )?.response?.data?.error;
+
+    if (details) {
+      const topLevelMessage = details.message ?? 'Unknown Error';
+      const code = details.code ? ` (code ${details.code})` : '';
+
+      if (details.errors?.length) {
+        const fieldErrors = details.errors
+          .map((e) => {
+            const context = [e.domain, e.locationType, e.location]
+              .filter(Boolean)
+              .join('.');
+            const identity = [context, e.reason].filter(Boolean).join(' ');
+            return identity ? `${identity}: ${e.message}` : e.message;
+          })
+          .join('; ');
+
+        // If the top-level message is just a generic summary of the first field error,
+        // or if they are identical, just show the field errors to avoid stutter.
+        if (
+          details.errors.length === 1 &&
+          (topLevelMessage === details.errors[0].message ||
+            topLevelMessage.includes(details.errors[0].message ?? ''))
+        ) {
+          return `${fieldErrors}${code}`;
+        }
+
+        return `${topLevelMessage}${code}: ${fieldErrors}`;
+      }
+
+      return `${topLevelMessage}${code}`;
+    }
+
+    return error instanceof Error ? error.message : String(error);
   }
 
   private async getCalendar(): Promise<calendar_v3.Calendar> {
@@ -164,15 +314,32 @@ export class CalendarService {
   };
 
   createEvent = async (input: CreateEventInput) => {
-    const { calendarId, summary, description, start, end, attendees } = input;
+    const {
+      calendarId,
+      description,
+      start,
+      end,
+      attendees,
+      sendUpdates,
+      addGoogleMeet,
+      attachments,
+      eventType,
+      focusTimeProperties,
+      outOfOfficeProperties,
+      workingLocationProperties,
+    } = input;
 
-    // Validate datetime formats
+    // Apply default summary based on event type
+    const summaryDefaults: Record<string, string> = {
+      focusTime: 'Focus Time',
+      outOfOffice: 'Out of Office',
+      workingLocation: 'Working Location',
+    };
+    const summary =
+      input.summary ?? (eventType ? summaryDefaults[eventType] : undefined);
+
     try {
-      iso8601DateTimeSchema.parse(start.dateTime);
-      iso8601DateTimeSchema.parse(end.dateTime);
-      if (attendees) {
-        emailArraySchema.parse(attendees);
-      }
+      validateCreateEventInput(input);
     } catch (error) {
       return this.createValidationErrorResponse(error);
     }
@@ -180,28 +347,110 @@ export class CalendarService {
     const finalCalendarId = calendarId || (await this.getPrimaryCalendarId());
     logToFile(`Creating event in calendar: ${finalCalendarId}`);
     logToFile(`Event summary: ${summary}`);
+    if (eventType) logToFile(`Event type: ${eventType}`);
     if (description) logToFile(`Event description: ${description}`);
-    logToFile(`Event start: ${start.dateTime}`);
-    logToFile(`Event end: ${end.dateTime}`);
+    logToFile(`Event start: ${start.dateTime || start.date}`);
+    logToFile(`Event end: ${end.dateTime || end.date}`);
     logToFile(`Event attendees: ${attendees?.join(', ')}`);
+    if (addGoogleMeet) logToFile('Adding Google Meet link');
+    if (attachments?.length)
+      logToFile(`Attachments: ${attachments.length} file(s)`);
+
+    // Determine sendUpdates value
+    let finalSendUpdates = sendUpdates;
+    if (finalSendUpdates === undefined) {
+      finalSendUpdates = attendees?.length ? 'all' : 'none';
+    }
+    if (finalSendUpdates) {
+      logToFile(`Sending updates: ${finalSendUpdates}`);
+    }
+
     try {
-      const event = {
+      const event: calendar_v3.Schema$Event = {
         summary,
         description,
         start,
         end,
         attendees: attendees?.map((email) => ({ email })),
       };
+
+      // Set event type and type-specific properties
+      if (eventType && eventType !== 'default') {
+        event.eventType = eventType;
+      }
+
+      if (eventType === 'focusTime') {
+        event.transparency = 'opaque';
+        event.focusTimeProperties = {
+          chatStatus: focusTimeProperties?.chatStatus ?? 'doNotDisturb',
+          autoDeclineMode:
+            focusTimeProperties?.autoDeclineMode ??
+            'declineOnlyNewConflictingInvitations',
+        };
+        if (focusTimeProperties?.declineMessage !== undefined) {
+          event.focusTimeProperties.declineMessage =
+            focusTimeProperties.declineMessage;
+        }
+      } else if (eventType === 'outOfOffice') {
+        event.transparency = 'opaque';
+        event.outOfOfficeProperties = {
+          autoDeclineMode:
+            outOfOfficeProperties?.autoDeclineMode ??
+            'declineOnlyNewConflictingInvitations',
+        };
+        if (outOfOfficeProperties?.declineMessage !== undefined) {
+          event.outOfOfficeProperties.declineMessage =
+            outOfOfficeProperties.declineMessage;
+        }
+      } else if (eventType === 'workingLocation') {
+        // workingLocationProperties is guaranteed non-null by validation above
+        const wlInput = workingLocationProperties!;
+        event.visibility = 'public';
+        event.transparency = 'transparent';
+
+        const wlProps: calendar_v3.Schema$EventWorkingLocationProperties = {
+          type: wlInput.type,
+        };
+        if (wlInput.type === 'homeOffice') {
+          wlProps.homeOffice = {};
+        } else if (
+          wlInput.type === 'officeLocation' &&
+          wlInput.officeLocation
+        ) {
+          wlProps.officeLocation = {
+            buildingId: wlInput.officeLocation.buildingId,
+            label: wlInput.officeLocation.label,
+          };
+        } else if (
+          wlInput.type === 'customLocation' &&
+          wlInput.customLocation
+        ) {
+          wlProps.customLocation = {
+            label: wlInput.customLocation.label,
+          };
+        }
+        event.workingLocationProperties = wlProps;
+      }
+
       const calendar = await this.getCalendar();
-      const res = await calendar.events.insert({
+      const insertParams: calendar_v3.Params$Resource$Events$Insert = {
         calendarId: finalCalendarId,
         requestBody: event,
-      });
+        sendUpdates: finalSendUpdates,
+      };
+      this.applyMeetAndAttachments(
+        event,
+        insertParams,
+        addGoogleMeet,
+        attachments,
+        { allowEmptyAttachments: false },
+      );
+
+      const res = await calendar.events.insert(insertParams);
       logToFile(`Successfully created event: ${res.data.id}`);
       return createStructuredResponse(res.data, calendarCreateEventOutputSchema, 'calendar.createEvent');
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = this.extractErrorMessage(error);
       logToFile(`Error during calendar.createEvent: ${errorMessage}`);
       return {
         content: [
@@ -219,6 +468,7 @@ export class CalendarService {
       calendarId,
       timeMin = new Date().toISOString(),
       attendeeResponseStatus = ['accepted', 'tentative', 'needsAction'],
+      eventTypes,
     } = input;
 
     let timeMax = input.timeMax;
@@ -232,17 +482,26 @@ export class CalendarService {
     logToFile(`Listing events for calendar: ${finalCalendarId}`);
     try {
       const calendar = await this.getCalendar();
-      const res = await calendar.events.list({
+      const listParams: calendar_v3.Params$Resource$Events$List = {
         calendarId: finalCalendarId,
         timeMin,
         timeMax,
         singleEvents: true,
         fields:
-          'items(id,summary,start,end,description,htmlLink,attendees,status,recurringEventId)',
-      });
+          'items(id,summary,start,end,description,htmlLink,attendees,status,recurringEventId,eventType,focusTimeProperties,outOfOfficeProperties,workingLocationProperties,attachments(fileId,fileUrl,title,mimeType,iconLink))',
+      };
+      if (eventTypes && eventTypes.length > 0) {
+        listParams.eventTypes = eventTypes;
+      }
+      const res = await calendar.events.list(listParams);
 
       const events = res.data.items
-        ?.filter((event) => event.status !== 'cancelled' && !!event.summary)
+        ?.filter(
+          (event) =>
+            event.status !== 'cancelled' &&
+            (!!event.summary ||
+              (event.eventType && event.eventType !== 'default')),
+        )
         .filter((event) => {
           if (!event.attendees || event.attendees.length === 0) {
             return true; // No attendees, so we can't filter, include it
@@ -337,50 +596,59 @@ export class CalendarService {
   };
 
   updateEvent = async (input: UpdateEventInput) => {
-    const { eventId, calendarId, summary, description, start, end, attendees } =
-      input;
+    const {
+      eventId,
+      calendarId,
+      summary,
+      description,
+      start,
+      end,
+      attendees,
+      addGoogleMeet,
+      attachments,
+    } = input;
 
-    // Validate datetime formats if provided
     try {
-      if (start) {
-        iso8601DateTimeSchema.parse(start.dateTime);
-      }
-      if (end) {
-        iso8601DateTimeSchema.parse(end.dateTime);
-      }
-      if (attendees) {
-        emailArraySchema.parse(attendees);
-      }
+      validateUpdateEventInput(input);
     } catch (error) {
       return this.createValidationErrorResponse(error);
     }
 
     const finalCalendarId = calendarId || (await this.getPrimaryCalendarId());
     logToFile(`Updating event ${eventId} in calendar: ${finalCalendarId}`);
+    if (addGoogleMeet) logToFile('Adding Google Meet link');
+    if (attachments?.length)
+      logToFile(`Attachments: ${attachments.length} file(s)`);
 
     try {
       const calendar = await this.getCalendar();
-
-      // Build request body with only the fields to update (patch semantics)
       const requestBody: calendar_v3.Schema$Event = {};
       if (summary !== undefined) requestBody.summary = summary;
       if (description !== undefined) requestBody.description = description;
       if (start) requestBody.start = start;
       if (end) requestBody.end = end;
-      if (attendees)
+      if (attendees !== undefined)
         requestBody.attendees = attendees.map((email) => ({ email }));
 
-      const res = await calendar.events.update({
+      const updateParams: calendar_v3.Params$Resource$Events$Patch = {
         calendarId: finalCalendarId,
         eventId,
         requestBody,
-      });
+      };
+      this.applyMeetAndAttachments(
+        requestBody,
+        updateParams,
+        addGoogleMeet,
+        attachments,
+        { allowEmptyAttachments: true },
+      );
+
+      const res = await calendar.events.patch(updateParams);
 
       logToFile(`Successfully updated event: ${res.data.id}`);
       return createStructuredResponse(res.data, calendarUpdateEventOutputSchema, 'calendar.updateEvent');
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = this.extractErrorMessage(error);
       logToFile(`Error during calendar.updateEvent: ${errorMessage}`);
       return {
         content: [
