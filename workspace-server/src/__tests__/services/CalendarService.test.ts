@@ -431,7 +431,7 @@ describe('CalendarService', () => {
         timeMax: '2024-01-16T00:00:00Z',
         singleEvents: true,
         fields:
-          'items(id,summary,start,end,description,htmlLink,attendees,status,recurringEventId,eventType,focusTimeProperties,outOfOfficeProperties,workingLocationProperties,attachments(fileId,fileUrl,title,mimeType,iconLink))',
+          'items(id,summary,start,end,description,htmlLink,attendees,organizer,status,recurringEventId,eventType,focusTimeProperties,outOfOfficeProperties,workingLocationProperties,attachments(fileId,fileUrl,title,mimeType,iconLink))',
       });
 
       expect(JSON.parse(result.content[0].text)).toEqual({ items: mockEvents });
@@ -473,7 +473,7 @@ describe('CalendarService', () => {
         timeMax: '2024-01-16T00:00:00Z',
         singleEvents: true,
         fields:
-          'items(id,summary,start,end,description,htmlLink,attendees,status,recurringEventId,eventType,focusTimeProperties,outOfOfficeProperties,workingLocationProperties,attachments(fileId,fileUrl,title,mimeType,iconLink))',
+          'items(id,summary,start,end,description,htmlLink,attendees,organizer,status,recurringEventId,eventType,focusTimeProperties,outOfOfficeProperties,workingLocationProperties,attachments(fileId,fileUrl,title,mimeType,iconLink))',
       });
 
       expect(JSON.parse(result.content[0].text)).toEqual({ items: mockEvents });
@@ -1825,6 +1825,19 @@ describe('CalendarService', () => {
       expect(callArgs.fields).toContain('focusTimeProperties');
       expect(callArgs.fields).toContain('outOfOfficeProperties');
       expect(callArgs.fields).toContain('workingLocationProperties');
+    });
+
+    it('should include the organizer in fields', async () => {
+      mockCalendarAPI.events.list.mockResolvedValue({
+        data: { items: [] },
+      });
+
+      await calendarService.listEvents({
+        calendarId: 'primary',
+      });
+
+      const callArgs = mockCalendarAPI.events.list.mock.calls[0][0];
+      expect(callArgs.fields).toContain(',organizer,');
     });
 
     it('should return focus time events when filtered', async () => {
