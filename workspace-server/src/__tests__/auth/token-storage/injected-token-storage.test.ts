@@ -1,7 +1,10 @@
 /**
  * @license
- * Copyright 2026 Scott Willeke
+ * Copyright 2025 Google LLC
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Modifications copyright 2026 Scott Willeke
+ * Added tests for InjectedTokenStorage.
  */
 
 import {
