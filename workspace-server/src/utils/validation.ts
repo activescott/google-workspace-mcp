@@ -47,6 +47,18 @@ export const gmailAttachmentSchema = z.object({
     .describe(
       'MIME type of the attachment (e.g., "application/pdf"). Inferred from the file extension when omitted; falls back to "application/octet-stream".',
     ),
+  inline: z
+    .boolean()
+    .optional()
+    .describe(
+      'Embed the file in the HTML body instead of listing it as an attachment. The body must be HTML (isHtml: true) and reference it as <img src="cid:CONTENT_ID">.',
+    ),
+  contentId: z
+    .string()
+    .optional()
+    .describe(
+      'Content-ID an inline attachment is referenced by in the HTML body, without "cid:" or angle brackets. Defaults to the attachment filename.',
+    ),
 });
 
 /**

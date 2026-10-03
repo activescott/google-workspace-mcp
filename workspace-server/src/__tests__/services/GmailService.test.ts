@@ -983,6 +983,89 @@ describe('GmailService', () => {
       );
     });
 
+    it('should send an email with attachments and inline images', async () => {
+      (MimeHelper.createMimeMessageWithAttachments as jest.Mock) = jest
+        .fn()
+        .mockReturnValue('base64encodedmessage-with-attachments');
+      (fs.stat as any).mockResolvedValue({ isFile: () => true, size: 1024 });
+      const pdf = Buffer.from('pdf');
+      const png = Buffer.from('png');
+      (fs.readFile as any).mockImplementation(async (p: string) =>
+        p.endsWith('.pdf') ? pdf : png,
+      );
+      mockGmailAPI.users.messages.send.mockResolvedValue({
+        data: { id: 'sent-attach', threadId: 't', labelIds: ['SENT'] },
+      });
+
+      const result = await gmailService.send({
+        to: 'recipient@example.com',
+        subject: 'Slides',
+        body: '<img src="cid:slide19">',
+        isHtml: true,
+        attachments: [
+          { filePath: '/tmp/deck.pdf' },
+          { filePath: '/tmp/slide19.png', inline: true, contentId: 'slide19' },
+        ],
+      });
+
+      expect(MimeHelper.createMimeMessageWithAttachments).toHaveBeenCalledWith(
+        expect.objectContaining({
+          isHtml: true,
+          attachments: [
+            {
+              filename: 'deck.pdf',
+              content: pdf,
+              contentType: 'application/pdf',
+            },
+            {
+              filename: 'slide19.png',
+              content: png,
+              contentType: 'image/png',
+              inline: true,
+              contentId: 'slide19',
+            },
+          ],
+        }),
+      );
+      expect(MimeHelper.createMimeMessage).not.toHaveBeenCalled();
+      expect(mockGmailAPI.users.messages.send).toHaveBeenCalledWith({
+        userId: 'me',
+        requestBody: { raw: 'base64encodedmessage-with-attachments' },
+      });
+      expect(JSON.parse(result.content[0].text).status).toBe('sent');
+    });
+
+    it('should enforce the attachment size limit on send', async () => {
+      (fs.stat as any).mockResolvedValue({
+        isFile: () => true,
+        size: 30 * 1024 * 1024,
+      });
+
+      const result = await gmailService.send({
+        to: 'recipient@example.com',
+        subject: 'Too Large',
+        body: 'Body',
+        attachments: [{ filePath: '/tmp/huge.zip' }],
+      });
+
+      const response = JSON.parse(result.content[0].text);
+      expect(response.error).toContain('exceeds the maximum allowed limit');
+      expect(mockGmailAPI.users.messages.send).not.toHaveBeenCalled();
+    });
+
+    it('should reject inline attachments on a plain-text send', async () => {
+      const result = await gmailService.send({
+        to: 'recipient@example.com',
+        subject: 'Plain',
+        body: 'Body',
+        attachments: [{ filePath: '/tmp/a.png', inline: true }],
+      });
+
+      const response = JSON.parse(result.content[0].text);
+      expect(response.error).toContain('Inline attachments need an HTML body');
+      expect(mockGmailAPI.users.messages.send).not.toHaveBeenCalled();
+    });
+
     it('should handle send errors', async () => {
       const apiError = new Error('Failed to send message');
       mockGmailAPI.users.messages.send.mockRejectedValue(apiError);
@@ -1308,6 +1391,40 @@ describe('GmailService', () => {
       const response = JSON.parse(result.content[0].text);
       expect(response.status).toBe('draft_created');
       expect(response.id).toBe('draft-attach-1');
+    });
+
+    it('should pass inline attachments through on a draft', async () => {
+      mockGmailAPI.users.drafts.create.mockResolvedValue({
+        data: { id: 'draft-inline', message: { id: 'm' } },
+      });
+      const png = Buffer.from('png');
+      (fs.readFile as any).mockResolvedValue(png);
+
+      await gmailService.createDraft({
+        to: 'recipient@example.com',
+        subject: 'Inline draft',
+        body: '<img src="cid:chart">',
+        isHtml: true,
+        attachments: [
+          { filePath: '/tmp/chart.png', inline: true, contentId: 'chart' },
+        ],
+      });
+
+      expect(
+        MimeHelper.createMimeMessageWithAttachments as jest.Mock,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          attachments: [
+            {
+              filename: 'chart.png',
+              content: png,
+              contentType: 'image/png',
+              inline: true,
+              contentId: 'chart',
+            },
+          ],
+        }),
+      );
     });
 
     it('should use filename override when provided', async () => {

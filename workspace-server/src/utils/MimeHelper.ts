@@ -119,7 +119,62 @@ export class MimeHelper {
   }
 
   /**
-   * Creates a MIME message with attachments
+   * Strips the angle brackets and whitespace a caller may include around a
+   * Content-ID, so `<logo>`, `logo` and `cid:logo` all produce `<logo>`.
+   */
+  private static sanitizeContentId(contentId: string): string {
+    return MimeHelper.sanitizeHeaderValue(contentId)
+      .replace(/^cid:/i, '')
+      .replace(/[<>\s]/g, '');
+  }
+
+  private static pushAttachmentPart(
+    messageParts: string[],
+    boundary: string,
+    attachment: {
+      filename: string;
+      content: Buffer | string;
+      contentType?: string;
+      inline?: boolean;
+      contentId?: string;
+    },
+  ): void {
+    const safeContentType = MimeHelper.sanitizeHeaderValue(
+      attachment.contentType || 'application/octet-stream',
+    );
+    const safeFilename = MimeHelper.sanitizeHeaderFilename(attachment.filename);
+    messageParts.push(`--${boundary}`);
+    messageParts.push(`Content-Type: ${safeContentType}`);
+    messageParts.push('Content-Transfer-Encoding: base64');
+    if (attachment.inline) {
+      const contentId = MimeHelper.sanitizeContentId(
+        attachment.contentId || attachment.filename,
+      );
+      messageParts.push(`Content-ID: <${contentId}>`);
+      messageParts.push(
+        `Content-Disposition: inline; filename="${safeFilename}"`,
+      );
+    } else {
+      messageParts.push(
+        `Content-Disposition: attachment; filename="${safeFilename}"`,
+      );
+    }
+    messageParts.push('');
+
+    const content =
+      typeof attachment.content === 'string'
+        ? attachment.content
+        : attachment.content.toString('base64');
+
+    // Add content in chunks of 76 characters as per MIME spec
+    const chunks = content.match(/.{1,76}/g) || [];
+    messageParts.push(...chunks);
+  }
+
+  /**
+   * Creates a MIME message with attachments. Inline attachments go in a
+   * multipart/related part next to the body so an HTML body can reference
+   * them as `cid:<contentId>`; the rest go in the outer multipart/mixed.
    */
   public static createMimeMessageWithAttachments({
     to,
@@ -147,6 +202,8 @@ export class MimeHelper {
       filename: string;
       content: Buffer | string;
       contentType?: string;
+      inline?: boolean;
+      contentId?: string;
     }>;
     isHtml?: boolean;
   }): string {
@@ -199,51 +256,67 @@ export class MimeHelper {
         `References: ${MimeHelper.sanitizeHeaderValue(references)}`,
       );
     }
-    messageParts.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
-    messageParts.push('');
+    const inlineAttachments = attachments.filter((att) => att.inline);
+    const fileAttachments = attachments.filter((att) => !att.inline);
+    const relatedBoundary = `related_${boundary}`;
 
-    // Body part
-    messageParts.push(`--${boundary}`);
+    const bodyParts: string[] = [];
     if (isHtml) {
-      messageParts.push('Content-Type: text/html; charset=utf-8');
+      bodyParts.push('Content-Type: text/html; charset=utf-8');
     } else {
-      messageParts.push('Content-Type: text/plain; charset=utf-8');
+      bodyParts.push('Content-Type: text/plain; charset=utf-8');
+    }
+    bodyParts.push('');
+    bodyParts.push(body);
+
+    if (fileAttachments.length === 0) {
+      messageParts.push(
+        `Content-Type: multipart/related; boundary="${relatedBoundary}"`,
+      );
+    } else {
+      messageParts.push(
+        `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      );
     }
     messageParts.push('');
-    messageParts.push(body);
 
-    // Attachments
-    for (const attachment of attachments) {
-      const safeContentType = MimeHelper.sanitizeHeaderValue(
-        attachment.contentType || 'application/octet-stream',
-      );
-      const safeFilename = MimeHelper.sanitizeHeaderFilename(
-        attachment.filename,
-      );
+    if (inlineAttachments.length > 0) {
+      if (fileAttachments.length > 0) {
+        messageParts.push(`--${boundary}`);
+        messageParts.push(
+          `Content-Type: multipart/related; boundary="${relatedBoundary}"`,
+        );
+        messageParts.push('');
+      }
+      messageParts.push(`--${relatedBoundary}`);
+      messageParts.push(...bodyParts);
+      for (const attachment of inlineAttachments) {
+        MimeHelper.pushAttachmentPart(
+          messageParts,
+          relatedBoundary,
+          attachment,
+        );
+      }
+      messageParts.push(`--${relatedBoundary}--`);
+      if (fileAttachments.length === 0) {
+        return MimeHelper.encodeBase64Url(messageParts.join('\r\n'));
+      }
+    } else {
       messageParts.push(`--${boundary}`);
-      messageParts.push(`Content-Type: ${safeContentType}`);
-      messageParts.push('Content-Transfer-Encoding: base64');
-      messageParts.push(
-        `Content-Disposition: attachment; filename="${safeFilename}"`,
-      );
-      messageParts.push('');
+      messageParts.push(...bodyParts);
+    }
 
-      const content =
-        typeof attachment.content === 'string'
-          ? attachment.content
-          : attachment.content.toString('base64');
-
-      // Add content in chunks of 76 characters as per MIME spec
-      const chunks = content.match(/.{1,76}/g) || [];
-      messageParts.push(...chunks);
+    for (const attachment of fileAttachments) {
+      MimeHelper.pushAttachmentPart(messageParts, boundary, attachment);
     }
 
     // End boundary
     messageParts.push(`--${boundary}--`);
 
-    const message = messageParts.join('\r\n');
+    return MimeHelper.encodeBase64Url(messageParts.join('\r\n'));
+  }
 
-    // Encode to base64url
+  private static encodeBase64Url(message: string): string {
     return Buffer.from(message)
       .toString('base64')
       .replace(/\+/g, '-')

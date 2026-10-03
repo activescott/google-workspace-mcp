@@ -1739,7 +1739,15 @@ System labels that can be modified:
     {
       description: 'Send an email message.',
       outputSchema: gmailSendOutputSchema,
-      inputSchema: emailComposeSchema,
+      inputSchema: {
+        ...emailComposeSchema,
+        attachments: z
+          .array(gmailAttachmentSchema)
+          .optional()
+          .describe(
+            'Files to attach to the email. Each entry must reference an absolute local path. Set inline to embed an image in an HTML body.',
+          ),
+      },
     },
     gmailService.send,
   );
@@ -1761,7 +1769,7 @@ System labels that can be modified:
           .array(gmailAttachmentSchema)
           .optional()
           .describe(
-            'Files to attach to the draft. Each entry must reference an absolute local path. Download attachments first with gmail.downloadAttachment if needed.',
+            'Files to attach to the draft. Each entry must reference an absolute local path. Download attachments first with gmail.downloadAttachment if needed. Set inline to embed an image in an HTML body.',
           ),
       },
     },
