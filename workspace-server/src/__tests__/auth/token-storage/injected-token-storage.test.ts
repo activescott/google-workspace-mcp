@@ -103,6 +103,12 @@ describe('InjectedTokenStorage', () => {
     });
 
     it('should write file with mode 0600', async () => {
+      // Windows does not apply Unix permission bits, so this check only
+      // makes sense on platforms that honor them.
+      if (process.platform === 'win32') {
+        return;
+      }
+
       await storage.setCredentials({
         serverName: 'main-account',
         token: {
