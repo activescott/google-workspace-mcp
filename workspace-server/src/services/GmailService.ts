@@ -174,7 +174,11 @@ export class GmailService {
         nextPageToken,
         resultSizeEstimate,
       };
-      return createStructuredResponse(data, gmailSearchOutputSchema, 'gmail.search');
+      return createStructuredResponse(
+        data,
+        gmailSearchOutputSchema,
+        'gmail.search',
+      );
     } catch (error) {
       return this.handleError(error, 'gmail.search');
     }
@@ -190,7 +194,9 @@ export class GmailService {
     bodyFormat?: 'text' | 'html' | 'markdown';
   }) => {
     try {
-      logToFile(`Getting message ${messageId} with format: ${format}, bodyFormat: ${bodyFormat}`);
+      logToFile(
+        `Getting message ${messageId} with format: ${format}, bodyFormat: ${bodyFormat}`,
+      );
 
       const gmail = await this.getGmailClient();
       const response = await gmail.users.messages.get({
@@ -218,7 +224,11 @@ export class GmailService {
         if (format === 'full' && message.payload) {
           const result = this.extractAttachmentsAndBody(message.payload);
           attachments = result.attachments;
-          body = await this.selectBody(result.textBody, result.htmlBody, bodyFormat);
+          body = await this.selectBody(
+            result.textBody,
+            result.htmlBody,
+            bodyFormat,
+          );
         }
 
         const data = {
@@ -233,10 +243,18 @@ export class GmailService {
           body: body || message.snippet,
           attachments: attachments,
         };
-        return createStructuredResponse(data, gmailGetOutputSchema, 'gmail.get');
+        return createStructuredResponse(
+          data,
+          gmailGetOutputSchema,
+          'gmail.get',
+        );
       }
 
-      return createStructuredResponse(message, gmailGetRawOutputSchema, 'gmail.get');
+      return createStructuredResponse(
+        message,
+        gmailGetRawOutputSchema,
+        'gmail.get',
+      );
     } catch (error) {
       return this.handleError(error, 'gmail.get');
     }
@@ -285,7 +303,11 @@ export class GmailService {
         message: `Attachment downloaded successfully to ${localPath}`,
         path: localPath,
       };
-      return createStructuredResponse(responseData, gmailDownloadAttachmentOutputSchema, 'gmail.downloadAttachment');
+      return createStructuredResponse(
+        responseData,
+        gmailDownloadAttachmentOutputSchema,
+        'gmail.downloadAttachment',
+      );
     } catch (error) {
       return this.handleError(error, 'gmail.downloadAttachment');
     }
@@ -316,7 +338,11 @@ export class GmailService {
       });
 
       const message = response.data;
-      return createStructuredResponse(message, gmailModifyOutputSchema, 'gmail.modify');
+      return createStructuredResponse(
+        message,
+        gmailModifyOutputSchema,
+        'gmail.modify',
+      );
     } catch (error) {
       return this.handleError(error, 'gmail.modify');
     }
@@ -534,7 +560,11 @@ export class GmailService {
         labelIds: response.data.labelIds,
         status: 'sent' as const,
       };
-      return createStructuredResponse(data, gmailSendOutputSchema, 'gmail.send');
+      return createStructuredResponse(
+        data,
+        gmailSendOutputSchema,
+        'gmail.send',
+      );
     } catch (error) {
       return this.handleError(error, 'gmail.send');
     }
@@ -712,7 +742,11 @@ export class GmailService {
         },
         status: 'draft_created' as const,
       };
-      return createStructuredResponse(data, gmailCreateDraftOutputSchema, 'gmail.createDraft');
+      return createStructuredResponse(
+        data,
+        gmailCreateDraftOutputSchema,
+        'gmail.createDraft',
+      );
     } catch (error) {
       return this.handleError(error, 'gmail.createDraft');
     }
@@ -738,7 +772,11 @@ export class GmailService {
         labelIds: response.data.labelIds,
         status: 'sent' as const,
       };
-      return createStructuredResponse(data, gmailSendDraftOutputSchema, 'gmail.sendDraft');
+      return createStructuredResponse(
+        data,
+        gmailSendDraftOutputSchema,
+        'gmail.sendDraft',
+      );
     } catch (error) {
       return this.handleError(error, 'gmail.sendDraft');
     }
@@ -766,7 +804,11 @@ export class GmailService {
           labelListVisibility: label.labelListVisibility,
         })),
       };
-      return createStructuredResponse(data, gmailListLabelsOutputSchema, 'gmail.listLabels');
+      return createStructuredResponse(
+        data,
+        gmailListLabelsOutputSchema,
+        'gmail.listLabels',
+      );
     } catch (error) {
       return this.handleError(error, 'gmail.listLabels');
     }
@@ -807,7 +849,11 @@ export class GmailService {
         labelListVisibility: label.labelListVisibility,
         status: 'created' as const,
       };
-      return createStructuredResponse(data, gmailCreateLabelOutputSchema, 'gmail.createLabel');
+      return createStructuredResponse(
+        data,
+        gmailCreateLabelOutputSchema,
+        'gmail.createLabel',
+      );
     } catch (error) {
       return this.handleError(error, 'gmail.createLabel');
     }

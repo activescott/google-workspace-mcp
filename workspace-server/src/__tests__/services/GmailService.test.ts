@@ -25,8 +25,12 @@ jest.mock('node:fs/promises');
 jest.mock('../../utils/logger');
 jest.mock('../../utils/MimeHelper');
 jest.mock('../../utils/htmlToText', () => ({
-  htmlToText: jest.fn((html: string) => Promise.resolve('converted-text: ' + html)),
-  htmlToMarkdown: jest.fn((html: string) => Promise.resolve('converted-markdown: ' + html)),
+  htmlToText: jest.fn((html: string) =>
+    Promise.resolve('converted-text: ' + html),
+  ),
+  htmlToMarkdown: jest.fn((html: string) =>
+    Promise.resolve('converted-markdown: ' + html),
+  ),
 }));
 
 describe('GmailService', () => {
@@ -452,7 +456,9 @@ describe('GmailService', () => {
             },
             {
               mimeType: 'text/html',
-              body: { data: Buffer.from('<p>HTML body</p>').toString('base64') },
+              body: {
+                data: Buffer.from('<p>HTML body</p>').toString('base64'),
+              },
               filename: '',
             },
           ],

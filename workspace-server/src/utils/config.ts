@@ -35,14 +35,17 @@ const DEFAULT_CONFIG: WorkspaceConfig = {
 export function loadConfig(): WorkspaceConfig {
   const config: WorkspaceConfig = {
     clientId: process.env['WORKSPACE_CLIENT_ID'] || DEFAULT_CONFIG.clientId,
-    clientSecret: process.env['WORKSPACE_CLIENT_SECRET'] || DEFAULT_CONFIG.clientSecret,
+    clientSecret:
+      process.env['WORKSPACE_CLIENT_SECRET'] || DEFAULT_CONFIG.clientSecret,
     cloudFunctionUrl:
       process.env['WORKSPACE_CLOUD_FUNCTION_URL'] ||
       DEFAULT_CONFIG.cloudFunctionUrl,
     tokenRefreshUrl:
-      process.env['WORKSPACE_TOKEN_REFRESH_URL'] || DEFAULT_CONFIG.tokenRefreshUrl,
+      process.env['WORKSPACE_TOKEN_REFRESH_URL'] ||
+      DEFAULT_CONFIG.tokenRefreshUrl,
     credentialsPath:
-      process.env['WORKSPACE_CREDENTIALS_PATH'] || DEFAULT_CONFIG.credentialsPath,
+      process.env['WORKSPACE_CREDENTIALS_PATH'] ||
+      DEFAULT_CONFIG.credentialsPath,
   };
 
   const maskedClientId =
@@ -51,8 +54,12 @@ export function loadConfig(): WorkspaceConfig {
       : config.clientId;
   logToFile(
     `Loaded config: clientId=${maskedClientId}, cloudFunctionUrl=${config.cloudFunctionUrl}` +
-    (config.credentialsPath ? `, credentialsPath=${config.credentialsPath}` : '') +
-    (config.tokenRefreshUrl ? `, tokenRefreshUrl=${config.tokenRefreshUrl}` : ''),
+      (config.credentialsPath
+        ? `, credentialsPath=${config.credentialsPath}`
+        : '') +
+      (config.tokenRefreshUrl
+        ? `, tokenRefreshUrl=${config.tokenRefreshUrl}`
+        : ''),
   );
   return config;
 }

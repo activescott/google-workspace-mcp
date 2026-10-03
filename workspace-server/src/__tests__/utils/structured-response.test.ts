@@ -37,12 +37,18 @@ describe('createStructuredResponse', () => {
   });
 
   it('should handle passthrough schemas for extra fields', () => {
-    const passthroughSchema = z.object({
-      id: z.string(),
-    }).passthrough();
+    const passthroughSchema = z
+      .object({
+        id: z.string(),
+      })
+      .passthrough();
 
     const data = { id: '123', extra: 'field' };
-    const result = createStructuredResponse(data, passthroughSchema, 'test.tool');
+    const result = createStructuredResponse(
+      data,
+      passthroughSchema,
+      'test.tool',
+    );
 
     expect(result.structuredContent).toEqual(data);
   });

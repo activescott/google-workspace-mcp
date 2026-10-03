@@ -44,11 +44,13 @@ export const gmailDownloadAttachmentOutputSchema = z.object({
   path: z.string(),
 });
 
-export const gmailModifyOutputSchema = z.object({
-  id: z.string().nullable().optional(),
-  threadId: z.string().nullable().optional(),
-  labelIds: z.array(z.string()).nullable().optional(),
-}).passthrough();
+export const gmailModifyOutputSchema = z
+  .object({
+    id: z.string().nullable().optional(),
+    threadId: z.string().nullable().optional(),
+    labelIds: z.array(z.string()).nullable().optional(),
+  })
+  .passthrough();
 
 export const gmailSendOutputSchema = z.object({
   id: z.string().nullable().optional(),

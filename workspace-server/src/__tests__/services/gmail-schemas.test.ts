@@ -51,7 +51,12 @@ describe('gmail-schemas', () => {
         date: 'Mon, 10 Mar 2026',
         body: 'Hello world',
         attachments: [
-          { filename: 'doc.pdf', mimeType: 'application/pdf', attachmentId: 'att-1', size: 1024 },
+          {
+            filename: 'doc.pdf',
+            mimeType: 'application/pdf',
+            attachmentId: 'att-1',
+            size: 1024,
+          },
         ],
       };
       expect(gmailGetOutputSchema.safeParse(data).success).toBe(true);
@@ -95,7 +100,13 @@ describe('gmail-schemas', () => {
     it('should validate a labels list', () => {
       const data = {
         labels: [
-          { id: 'INBOX', name: 'INBOX', type: 'system', messageListVisibility: 'show', labelListVisibility: 'labelShow' },
+          {
+            id: 'INBOX',
+            name: 'INBOX',
+            type: 'system',
+            messageListVisibility: 'show',
+            labelListVisibility: 'labelShow',
+          },
         ],
       };
       expect(gmailListLabelsOutputSchema.safeParse(data).success).toBe(true);
@@ -134,7 +145,9 @@ describe('gmail-schemas', () => {
         message: 'Attachment downloaded successfully to /tmp/file.pdf',
         path: '/tmp/file.pdf',
       };
-      expect(gmailDownloadAttachmentOutputSchema.safeParse(data).success).toBe(true);
+      expect(gmailDownloadAttachmentOutputSchema.safeParse(data).success).toBe(
+        true,
+      );
     });
   });
 });

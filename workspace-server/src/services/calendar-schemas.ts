@@ -15,33 +15,39 @@ export const calendarListOutputSchema = z.object({
   ),
 });
 
-const calendarDateTimeSchema = z.object({
-  dateTime: z.string().optional(),
-  date: z.string().optional(),
-  timeZone: z.string().optional(),
-}).optional();
+const calendarDateTimeSchema = z
+  .object({
+    dateTime: z.string().optional(),
+    date: z.string().optional(),
+    timeZone: z.string().optional(),
+  })
+  .optional();
 
-const calendarAttendeeSchema = z.object({
-  email: z.string().optional(),
-  displayName: z.string().optional(),
-  responseStatus: z.string().optional(),
-  self: z.boolean().optional(),
-  organizer: z.boolean().optional(),
-  optional: z.boolean().optional(),
-  comment: z.string().optional(),
-}).passthrough();
+const calendarAttendeeSchema = z
+  .object({
+    email: z.string().optional(),
+    displayName: z.string().optional(),
+    responseStatus: z.string().optional(),
+    self: z.boolean().optional(),
+    organizer: z.boolean().optional(),
+    optional: z.boolean().optional(),
+    comment: z.string().optional(),
+  })
+  .passthrough();
 
-const calendarEventSchema = z.object({
-  id: z.string().nullable().optional(),
-  summary: z.string().nullable().optional(),
-  description: z.string().nullable().optional(),
-  start: calendarDateTimeSchema,
-  end: calendarDateTimeSchema,
-  htmlLink: z.string().nullable().optional(),
-  status: z.string().nullable().optional(),
-  attendees: z.array(calendarAttendeeSchema).nullable().optional(),
-  recurringEventId: z.string().nullable().optional(),
-}).passthrough();
+const calendarEventSchema = z
+  .object({
+    id: z.string().nullable().optional(),
+    summary: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    start: calendarDateTimeSchema,
+    end: calendarDateTimeSchema,
+    htmlLink: z.string().nullable().optional(),
+    status: z.string().nullable().optional(),
+    attendees: z.array(calendarAttendeeSchema).nullable().optional(),
+    recurringEventId: z.string().nullable().optional(),
+  })
+  .passthrough();
 
 export const calendarListEventsOutputSchema = z.object({
   items: z.array(calendarEventSchema),
