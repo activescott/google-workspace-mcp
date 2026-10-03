@@ -543,6 +543,117 @@ describe('MimeHelper', () => {
       expect(decoded).not.toContain('In-Reply-To:');
       expect(decoded).not.toContain('References:');
     });
+
+    it('should put inline-only attachments in a top-level multipart/related', () => {
+      const encoded = MimeHelper.createMimeMessageWithAttachments({
+        to: 'recipient@example.com',
+        subject: 'Inline',
+        body: '<p><img src="cid:slide19"></p>',
+        isHtml: true,
+        attachments: [
+          {
+            filename: 'slide19.png',
+            content: Buffer.from('png bytes'),
+            contentType: 'image/png',
+            inline: true,
+            contentId: 'slide19',
+          },
+        ],
+      });
+
+      const decoded = MimeHelper.decodeBase64Url(encoded);
+
+      expect(decoded).toContain('Content-Type: multipart/related; boundary=');
+      expect(decoded).not.toContain('multipart/mixed');
+      expect(decoded).toContain('Content-ID: <slide19>');
+      expect(decoded).toContain(
+        'Content-Disposition: inline; filename="slide19.png"',
+      );
+      expect(decoded.indexOf('Content-Type: text/html')).toBeLessThan(
+        decoded.indexOf('Content-ID: <slide19>'),
+      );
+    });
+
+    it('should nest multipart/related inside multipart/mixed when both kinds are present', () => {
+      const encoded = MimeHelper.createMimeMessageWithAttachments({
+        to: 'recipient@example.com',
+        subject: 'Both',
+        body: '<img src="cid:logo">',
+        isHtml: true,
+        attachments: [
+          {
+            filename: 'report.pdf',
+            content: Buffer.from('pdf'),
+            contentType: 'application/pdf',
+          },
+          {
+            filename: 'logo.png',
+            content: Buffer.from('png'),
+            contentType: 'image/png',
+            inline: true,
+            contentId: 'logo',
+          },
+        ],
+      });
+
+      const decoded = MimeHelper.decodeBase64Url(encoded);
+      const mixed = decoded.match(
+        /^Content-Type: multipart\/mixed; boundary="([^"]+)"/m,
+      );
+      const related = decoded.match(
+        /Content-Type: multipart\/related; boundary="([^"]+)"/,
+      );
+      expect(mixed).not.toBeNull();
+      expect(related).not.toBeNull();
+
+      const [, mixedBoundary] = mixed!;
+      const [, relatedBoundary] = related!;
+      const lines = decoded.split('\r\n');
+      const at = (line: string) => lines.indexOf(line);
+
+      // related part opens the mixed body, closes before the file attachment
+      expect(lines[at(`--${mixedBoundary}`) + 1]).toBe(related![0]);
+      expect(at(`--${relatedBoundary}--`)).toBeGreaterThan(
+        at('Content-ID: <logo>'),
+      );
+      expect(at(`--${relatedBoundary}--`)).toBeLessThan(
+        at('Content-Disposition: attachment; filename="report.pdf"'),
+      );
+      expect(lines[lines.length - 1]).toBe(`--${mixedBoundary}--`);
+    });
+
+    it('should default Content-ID to the filename and strip cid: and angle brackets', () => {
+      const attachment = {
+        filename: 'a.png',
+        content: Buffer.from('x'),
+        contentType: 'image/png',
+        inline: true,
+      };
+      const decodedDefault = MimeHelper.decodeBase64Url(
+        MimeHelper.createMimeMessageWithAttachments({
+          to: 'recipient@example.com',
+          subject: 'S',
+          body: '<img src="cid:a.png">',
+          isHtml: true,
+          attachments: [attachment],
+        }),
+      );
+      expect(decodedDefault).toContain('Content-ID: <a.png>');
+
+      const decodedExplicit = MimeHelper.decodeBase64Url(
+        MimeHelper.createMimeMessageWithAttachments({
+          to: 'recipient@example.com',
+          subject: 'S',
+          body: '<img src="cid:img1">',
+          isHtml: true,
+          attachments: [
+            { ...attachment, contentId: 'cid:<img 1>\r\nBcc: x@example.com' },
+          ],
+        }),
+      );
+      expect(decodedExplicit).toContain('Content-ID: <img1Bcc:x@example.com>');
+      expect(decodedExplicit).not.toMatch(/^Bcc:/m);
+    });
   });
 
   describe('decodeBase64Url', () => {
