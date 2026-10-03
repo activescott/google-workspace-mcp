@@ -591,7 +591,10 @@ describe('CalendarService', () => {
 
       const parsedResult = JSON.parse(result.content[0].text);
       expect(parsedResult.items).toHaveLength(2);
-      expect(parsedResult.items.map((e: any) => e.id)).toEqual(['event1', 'event3']);
+      expect(parsedResult.items.map((e: any) => e.id)).toEqual([
+        'event1',
+        'event3',
+      ]);
     });
 
     it('should filter events based on attendee response status', async () => {
@@ -641,7 +644,10 @@ describe('CalendarService', () => {
 
       const parsedResult = JSON.parse(result.content[0].text);
       expect(parsedResult.items).toHaveLength(2);
-      expect(parsedResult.items.map((e: any) => e.id)).toEqual(['event1', 'event3']);
+      expect(parsedResult.items.map((e: any) => e.id)).toEqual([
+        'event1',
+        'event3',
+      ]);
     });
 
     it('should include events with no attendees', async () => {

@@ -1,3 +1,9 @@
+/**
+ * @license
+ * Copyright 2026 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { describe, it, expect } from '@jest/globals';
 import {
   calendarListOutputSchema,
@@ -21,7 +27,9 @@ describe('calendar-schemas', () => {
     });
 
     it('should validate an empty calendars list', () => {
-      expect(calendarListOutputSchema.safeParse({ items: [] }).success).toBe(true);
+      expect(calendarListOutputSchema.safeParse({ items: [] }).success).toBe(
+        true,
+      );
     });
 
     it('should reject a bare array', () => {
@@ -46,7 +54,9 @@ describe('calendar-schemas', () => {
     });
 
     it('should validate an empty events list', () => {
-      expect(calendarListEventsOutputSchema.safeParse({ items: [] }).success).toBe(true);
+      expect(
+        calendarListEventsOutputSchema.safeParse({ items: [] }).success,
+      ).toBe(true);
     });
 
     it('should reject a bare array', () => {
@@ -71,7 +81,9 @@ describe('calendar-schemas', () => {
   describe('calendarDeleteEventOutputSchema', () => {
     it('should validate a delete result', () => {
       const data = { message: 'Successfully deleted event evt-1' };
-      expect(calendarDeleteEventOutputSchema.safeParse(data).success).toBe(true);
+      expect(calendarDeleteEventOutputSchema.safeParse(data).success).toBe(
+        true,
+      );
     });
   });
 
@@ -93,7 +105,9 @@ describe('calendar-schemas', () => {
         start: '2026-03-10T11:00:00Z',
         end: '2026-03-10T12:00:00Z',
       };
-      expect(calendarFindFreeTimeOutputSchema.safeParse(data).success).toBe(true);
+      expect(calendarFindFreeTimeOutputSchema.safeParse(data).success).toBe(
+        true,
+      );
     });
   });
 });
