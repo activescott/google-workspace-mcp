@@ -1,16 +1,13 @@
 /**
  * @license
- * Copyright 2026 Scott Willeke
+ * Copyright 2025 Google LLC
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Modifications copyright 2026 Scott Willeke
+ * Added tests for InjectedTokenStorage.
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-} from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -102,9 +99,7 @@ describe('InjectedTokenStorage', () => {
       expect(written.refresh_token).toBe('1//new-refresh');
       expect(written.token_type).toBe('Bearer');
       expect(written.expiry_date).toBe(1800000000000);
-      expect(written.scope).toBe(
-        'https://www.googleapis.com/auth/calendar',
-      );
+      expect(written.scope).toBe('https://www.googleapis.com/auth/calendar');
     });
 
     it('should write file with mode 0600', async () => {

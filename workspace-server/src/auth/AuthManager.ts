@@ -290,13 +290,16 @@ export class AuthManager {
           access_token: data.access_token,
           token_type: data.token_type || 'Bearer',
           scope: data.scope || currentCredentials.scope,
-          expiry_date: Date.now() + (data.expires_in * MS_PER_SECOND),
+          expiry_date: Date.now() + data.expires_in * MS_PER_SECOND,
           refresh_token: currentCredentials.refresh_token, // Always preserve original
         };
       } else {
         // Fall back to cloud function or custom refresh URL
-        const refreshUrl = TOKEN_REFRESH_URL || `${CLOUD_FUNCTION_URL}/refreshToken`;
-        logToFile(`Refreshing token via ${TOKEN_REFRESH_URL ? 'custom refresh URL' : 'cloud function'}...`);
+        const refreshUrl =
+          TOKEN_REFRESH_URL || `${CLOUD_FUNCTION_URL}/refreshToken`;
+        logToFile(
+          `Refreshing token via ${TOKEN_REFRESH_URL ? 'custom refresh URL' : 'cloud function'}...`,
+        );
 
         const response = await fetch(refreshUrl, {
           method: 'POST',
@@ -327,7 +330,9 @@ export class AuthManager {
 
       this.client.setCredentials(mergedCredentials);
       await OAuthCredentialStorage.saveCredentials(mergedCredentials);
-      logToFile(`Token refreshed and saved successfully via ${CLIENT_SECRET ? 'direct Google endpoint' : TOKEN_REFRESH_URL ? 'custom refresh URL' : 'cloud function'}`);
+      logToFile(
+        `Token refreshed and saved successfully via ${CLIENT_SECRET ? 'direct Google endpoint' : TOKEN_REFRESH_URL ? 'custom refresh URL' : 'cloud function'}`,
+      );
     } catch (error) {
       logToFile(`Error during token refresh: ${error}`);
       throw error;

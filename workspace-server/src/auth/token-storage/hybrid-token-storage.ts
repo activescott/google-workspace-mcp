@@ -27,7 +27,10 @@ export class HybridTokenStorage extends BaseTokenStorage {
     // use that directly — no keychain or encrypted file needed.
     const credentialsPath = process.env[CREDENTIALS_PATH_ENV_VAR];
     if (credentialsPath) {
-      this.storage = new InjectedTokenStorage(this.serviceName, credentialsPath);
+      this.storage = new InjectedTokenStorage(
+        this.serviceName,
+        credentialsPath,
+      );
       this.storageType = TokenStorageType.INJECTED;
       return this.storage;
     }
