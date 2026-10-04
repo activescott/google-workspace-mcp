@@ -93,11 +93,11 @@ type SendEmailParams = {
   bcc?: string | string[];
   replyTo?: string;
   isHtml?: boolean;
+  attachments?: AttachmentInput[];
 };
 
 type CreateDraftParams = SendEmailParams & {
   threadId?: string;
-  attachments?: AttachmentInput[];
 };
 
 interface GmailAttachment {
@@ -510,6 +510,81 @@ export class GmailService {
     }
   }
 
+  /**
+   * Validates attachment paths and the size cap, then reads each file.
+   * Shared by send and createDraft.
+   */
+  private async resolveAttachments(
+    attachments: AttachmentInput[],
+    isHtml: boolean,
+  ) {
+    if (!isHtml && attachments.some((att) => att.inline)) {
+      throw new Error(
+        'Inline attachments need an HTML body (isHtml: true) that references them as cid:CONTENT_ID.',
+      );
+    }
+
+    // Validate all paths are absolute and check file sizes before reading anything
+    const attachmentSizes = await Promise.all(
+      attachments.map(async (att) => {
+        if (!path.isAbsolute(att.filePath)) {
+          throw new Error(
+            `Attachment filePath must be an absolute path: ${att.filePath}`,
+          );
+        }
+
+        let stats;
+        try {
+          stats = await fs.stat(att.filePath);
+        } catch (statError) {
+          throw new Error(
+            `Could not access attachment file ${att.filePath}: ${statError instanceof Error ? statError.message : String(statError)}`,
+          );
+        }
+
+        if (!stats.isFile()) {
+          throw new Error(`Attachment path is not a file: ${att.filePath}`);
+        }
+
+        return stats.size;
+      }),
+    );
+    const totalSize = attachmentSizes.reduce((sum, size) => sum + size, 0);
+    assertWithinAttachmentSizeLimit(totalSize);
+
+    // Read each file from disk
+    const resolvedAttachments = await Promise.all(
+      attachments.map(async (att) => {
+        let content: Buffer;
+        try {
+          content = await fs.readFile(att.filePath);
+        } catch (readError) {
+          throw new Error(
+            `Could not read attachment file ${att.filePath}: ${readError instanceof Error ? readError.message : String(readError)}`,
+          );
+        }
+        return {
+          // `||` (not `??`) so empty strings also fall back to defaults —
+          // an empty filename or MIME type is invalid in MIME headers.
+          filename: att.filename || path.basename(att.filePath),
+          content,
+          contentType: att.mimeType || getMimeTypeFromExtension(att.filePath),
+          ...(att.inline && { inline: true, contentId: att.contentId }),
+        };
+      }),
+    );
+
+    // The stat-based check above is a pre-flight guard so oversized files
+    // are rejected before being read into memory, but a file can change
+    // between stat and read (TOCTOU). Re-check against the bytes actually
+    // read so the size cap is authoritative.
+    assertWithinAttachmentSizeLimit(
+      resolvedAttachments.reduce((sum, att) => sum + att.content.length, 0),
+    );
+
+    return resolvedAttachments;
+  }
+
   public send = async ({
     to,
     subject,
@@ -518,6 +593,7 @@ export class GmailService {
     bcc,
     replyTo,
     isHtml = false,
+    attachments,
   }: SendEmailParams) => {
     try {
       // Validate email addresses
@@ -534,15 +610,29 @@ export class GmailService {
       logToFile(`Sending email to: ${to}, subject: ${subject}`);
 
       // Create MIME message
-      const mimeMessage = MimeHelper.createMimeMessage({
-        to: Array.isArray(to) ? to.join(', ') : to,
-        subject,
-        body,
-        cc: cc ? (Array.isArray(cc) ? cc.join(', ') : cc) : undefined,
-        bcc: bcc ? (Array.isArray(bcc) ? bcc.join(', ') : bcc) : undefined,
-        replyTo,
-        isHtml,
-      });
+      let mimeMessage: string;
+      if (attachments && attachments.length > 0) {
+        mimeMessage = MimeHelper.createMimeMessageWithAttachments({
+          to: Array.isArray(to) ? to.join(', ') : to,
+          subject,
+          body,
+          cc: cc ? (Array.isArray(cc) ? cc.join(', ') : cc) : undefined,
+          bcc: bcc ? (Array.isArray(bcc) ? bcc.join(', ') : bcc) : undefined,
+          replyTo,
+          isHtml,
+          attachments: await this.resolveAttachments(attachments, isHtml),
+        });
+      } else {
+        mimeMessage = MimeHelper.createMimeMessage({
+          to: Array.isArray(to) ? to.join(', ') : to,
+          subject,
+          body,
+          cc: cc ? (Array.isArray(cc) ? cc.join(', ') : cc) : undefined,
+          bcc: bcc ? (Array.isArray(bcc) ? bcc.join(', ') : bcc) : undefined,
+          replyTo,
+          isHtml,
+        });
+      }
 
       const gmail = await this.getGmailClient();
       const response = await gmail.users.messages.send({
@@ -637,64 +727,6 @@ export class GmailService {
       let mimeMessage: string;
 
       if (attachments && attachments.length > 0) {
-        // Validate all paths are absolute and check file sizes before reading anything
-        const attachmentSizes = await Promise.all(
-          attachments.map(async (att) => {
-            if (!path.isAbsolute(att.filePath)) {
-              throw new Error(
-                `Attachment filePath must be an absolute path: ${att.filePath}`,
-              );
-            }
-
-            let stats;
-            try {
-              stats = await fs.stat(att.filePath);
-            } catch (statError) {
-              throw new Error(
-                `Could not access attachment file ${att.filePath}: ${statError instanceof Error ? statError.message : String(statError)}`,
-              );
-            }
-
-            if (!stats.isFile()) {
-              throw new Error(`Attachment path is not a file: ${att.filePath}`);
-            }
-
-            return stats.size;
-          }),
-        );
-        const totalSize = attachmentSizes.reduce((sum, size) => sum + size, 0);
-        assertWithinAttachmentSizeLimit(totalSize);
-
-        // Read each file from disk
-        const resolvedAttachments = await Promise.all(
-          attachments.map(async (att) => {
-            let content: Buffer;
-            try {
-              content = await fs.readFile(att.filePath);
-            } catch (readError) {
-              throw new Error(
-                `Could not read attachment file ${att.filePath}: ${readError instanceof Error ? readError.message : String(readError)}`,
-              );
-            }
-            return {
-              // `||` (not `??`) so empty strings also fall back to defaults —
-              // an empty filename or MIME type is invalid in MIME headers.
-              filename: att.filename || path.basename(att.filePath),
-              content,
-              contentType:
-                att.mimeType || getMimeTypeFromExtension(att.filePath),
-            };
-          }),
-        );
-
-        // The stat-based check above is a pre-flight guard so oversized files
-        // are rejected before being read into memory, but a file can change
-        // between stat and read (TOCTOU). Re-check against the bytes actually
-        // read so the size cap is authoritative.
-        assertWithinAttachmentSizeLimit(
-          resolvedAttachments.reduce((sum, att) => sum + att.content.length, 0),
-        );
-
         mimeMessage = MimeHelper.createMimeMessageWithAttachments({
           to: Array.isArray(to) ? to.join(', ') : to,
           subject,
@@ -705,7 +737,7 @@ export class GmailService {
           inReplyTo,
           references,
           isHtml,
-          attachments: resolvedAttachments,
+          attachments: await this.resolveAttachments(attachments, isHtml),
         });
       } else {
         mimeMessage = MimeHelper.createMimeMessage({
