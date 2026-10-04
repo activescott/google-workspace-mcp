@@ -511,10 +511,15 @@ export class GmailService {
   /**
    * If threadId is provided, fetches the last message in the thread to build
    * In-Reply-To and References headers. Shared by send and createDraft.
+   *
+   * send sets requireThread so a failed lookup refuses the send instead of
+   * going out without the reply headers; createDraft leaves it unset and
+   * stays lenient, since a draft can be fixed up by hand before it's sent.
    */
   private async getReplyHeaders(
     gmail: gmail_v1.Gmail,
     threadId: string | undefined,
+    { requireThread = false }: { requireThread?: boolean } = {},
   ): Promise<{ inReplyTo?: string; references?: string }> {
     if (!threadId) {
       return {};
@@ -547,6 +552,11 @@ export class GmailService {
         }
       }
     } catch (threadError) {
+      if (requireThread) {
+        throw new Error(
+          `Could not read thread ${threadId}; nothing was sent: ${threadError}`,
+        );
+      }
       logToFile(
         `Warning: Could not fetch thread ${threadId} for reply headers: ${threadError}`,
       );
@@ -583,6 +593,7 @@ export class GmailService {
       const { inReplyTo, references } = await this.getReplyHeaders(
         gmail,
         threadId,
+        { requireThread: true },
       );
 
       // Create MIME message

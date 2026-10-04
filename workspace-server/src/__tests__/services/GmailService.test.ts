@@ -900,14 +900,10 @@ describe('GmailService', () => {
       expect(response.threadId).toBe('thread1');
     });
 
-    it('should handle thread fetch failure gracefully and still send', async () => {
+    it('should refuse to send when the thread fetch fails', async () => {
       mockGmailAPI.users.threads.get.mockRejectedValue(
         new Error('Thread not found'),
       );
-
-      mockGmailAPI.users.messages.send.mockResolvedValue({
-        data: { id: 'sent-reply-2', threadId: 'thread1' },
-      });
 
       const result = await gmailService.send({
         to: 'recipient@example.com',
@@ -916,25 +912,10 @@ describe('GmailService', () => {
         threadId: 'thread1',
       });
 
-      // Verify MIME message was created without reply headers
-      expect(MimeHelper.createMimeMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          inReplyTo: undefined,
-          references: undefined,
-        }),
-      );
-
-      // Verify threadId was still set on the API request
-      expect(mockGmailAPI.users.messages.send).toHaveBeenCalledWith({
-        userId: 'me',
-        requestBody: {
-          raw: 'base64encodedmessage',
-          threadId: 'thread1',
-        },
-      });
+      expect(mockGmailAPI.users.messages.send).not.toHaveBeenCalled();
 
       const response = JSON.parse(result.content[0].text);
-      expect(response.status).toBe('sent');
+      expect(response.error).toMatch(/thread1/);
     });
   });
 
