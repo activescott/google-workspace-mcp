@@ -961,6 +961,48 @@ async function main() {
     sheetsService.getMetadata,
   );
 
+  const cellValues = z
+    .array(z.array(z.union([z.string(), z.number(), z.boolean()])))
+    .describe(
+      'Rows of cell values, e.g. [["Acme", "acme@example.com", 120]]. Values are written as-is (RAW): numbers and booleans are stored as such, but strings like "=SUM(A1:A3)" are stored as literal text, not evaluated as formulas.',
+    );
+
+  registerTool(
+    'sheets.updateRange',
+    {
+      description:
+        'Writes values to a range in a Google Sheets spreadsheet, replacing what is there. Values are written as-is (RAW), so a string is stored as literal text rather than being evaluated as a formula.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        range: z
+          .string()
+          .describe(
+            'The A1 notation range to write (e.g., "Sheet1!A2:C3"). Writing starts at its top-left cell.',
+          ),
+        values: cellValues,
+      },
+    },
+    sheetsService.updateRange,
+  );
+
+  registerTool(
+    'sheets.appendRows',
+    {
+      description:
+        'Appends rows after the last row of a table in a Google Sheets spreadsheet, inserting new rows rather than overwriting. Values are written as-is (RAW), so a string is stored as literal text rather than being evaluated as a formula.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        range: z
+          .string()
+          .describe(
+            'An A1 notation range in the table to append to (e.g., "Sheet1!A1"). The rows go after the last row of the table it finds there.',
+          ),
+        values: cellValues,
+      },
+    },
+    sheetsService.appendRows,
+  );
+
   registerTool(
     'drive.search',
     {
