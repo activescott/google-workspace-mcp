@@ -40,6 +40,8 @@ describe('SheetsService', () => {
         get: jest.fn(),
         values: {
           get: jest.fn(),
+          update: jest.fn(),
+          append: jest.fn(),
         },
       },
     };
@@ -368,6 +370,120 @@ describe('SheetsService', () => {
       const response = JSON.parse(result.content[0].text);
 
       expect(response.error).toBe('Metadata Error');
+    });
+  });
+
+  describe('updateRange', () => {
+    it('should write the values as entered by the user', async () => {
+      mockSheetsAPI.spreadsheets.values.update.mockResolvedValue({
+        data: {
+          updatedRange: 'Vendors!A2:C2',
+          updatedRows: 1,
+          updatedColumns: 3,
+          updatedCells: 3,
+        },
+      });
+
+      const result = await sheetsService.updateRange({
+        spreadsheetId: 'https://docs.google.com/spreadsheets/d/test-id/edit',
+        range: 'Vendors!A2:C2',
+        values: [['Acme', '=1+1', 120]],
+      });
+
+      expect(mockSheetsAPI.spreadsheets.values.update).toHaveBeenCalledWith({
+        spreadsheetId: 'test-id',
+        range: 'Vendors!A2:C2',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: {
+          range: 'Vendors!A2:C2',
+          majorDimension: 'ROWS',
+          values: [['Acme', '=1+1', 120]],
+        },
+      });
+      expect(JSON.parse(result.content[0].text)).toEqual({
+        updatedRange: 'Vendors!A2:C2',
+        updatedRows: 1,
+        updatedColumns: 3,
+        updatedCells: 3,
+      });
+    });
+
+    it('should handle errors gracefully', async () => {
+      mockSheetsAPI.spreadsheets.values.update.mockRejectedValue(
+        new Error('The caller does not have permission'),
+      );
+
+      const result = await sheetsService.updateRange({
+        spreadsheetId: 'test-id',
+        range: 'A1',
+        values: [['x']],
+      });
+
+      expect(JSON.parse(result.content[0].text).error).toBe(
+        'The caller does not have permission',
+      );
+    });
+  });
+
+  describe('appendRows', () => {
+    it('should insert rows after the table rather than overwrite', async () => {
+      mockSheetsAPI.spreadsheets.values.append.mockResolvedValue({
+        data: {
+          tableRange: 'Vendors!A1:C4',
+          updates: {
+            updatedRange: 'Vendors!A5:C6',
+            updatedRows: 2,
+            updatedColumns: 3,
+            updatedCells: 6,
+          },
+        },
+      });
+
+      const result = await sheetsService.appendRows({
+        spreadsheetId: 'test-id',
+        range: 'Vendors!A1',
+        values: [
+          ['Acme', 'acme@example.com', true],
+          ['Bolt', 'bolt@example.com', false],
+        ],
+      });
+
+      expect(mockSheetsAPI.spreadsheets.values.append).toHaveBeenCalledWith({
+        spreadsheetId: 'test-id',
+        range: 'Vendors!A1',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: {
+          majorDimension: 'ROWS',
+          values: [
+            ['Acme', 'acme@example.com', true],
+            ['Bolt', 'bolt@example.com', false],
+          ],
+        },
+      });
+      expect(JSON.parse(result.content[0].text)).toEqual({
+        tableRange: 'Vendors!A1:C4',
+        updatedRange: 'Vendors!A5:C6',
+        updatedRows: 2,
+        updatedColumns: 3,
+        updatedCells: 6,
+      });
+    });
+
+    it('should handle errors gracefully', async () => {
+      mockSheetsAPI.spreadsheets.values.append.mockRejectedValue(
+        new Error('Unable to parse range: Nope!A1'),
+      );
+
+      const result = await sheetsService.appendRows({
+        spreadsheetId: 'test-id',
+        range: 'Nope!A1',
+        values: [['x']],
+      });
+
+      expect(JSON.parse(result.content[0].text).error).toBe(
+        'Unable to parse range: Nope!A1',
+      );
     });
   });
 });

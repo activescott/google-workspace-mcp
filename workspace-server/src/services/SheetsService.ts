@@ -10,6 +10,8 @@ import { logToFile } from '../utils/logger';
 import { extractDocId } from '../utils/IdUtils';
 import { gaxiosOptions } from '../utils/GaxiosConfig';
 
+type CellValue = string | number | boolean;
+
 export class SheetsService {
   constructor(private authManager: AuthManager) {}
 
@@ -235,6 +237,118 @@ export class SheetsService {
         error instanceof Error ? error.message : String(error);
       logToFile(
         `[SheetsService] Error during sheets.getMetadata: ${errorMessage}`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ error: errorMessage }),
+          },
+        ],
+      };
+    }
+  };
+
+  public updateRange = async ({
+    spreadsheetId,
+    range,
+    values,
+  }: {
+    spreadsheetId: string;
+    range: string;
+    values: CellValue[][];
+  }) => {
+    logToFile(
+      `[SheetsService] Starting updateRange for spreadsheet: ${spreadsheetId}, range: ${range}`,
+    );
+    try {
+      const id = extractDocId(spreadsheetId) || spreadsheetId;
+
+      const sheets = await this.getSheetsClient();
+      const response = await sheets.spreadsheets.values.update({
+        spreadsheetId: id,
+        range: range,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { range: range, majorDimension: 'ROWS', values: values },
+      });
+
+      logToFile(`[SheetsService] Finished updateRange for spreadsheet: ${id}`);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              updatedRange: response.data.updatedRange,
+              updatedRows: response.data.updatedRows,
+              updatedColumns: response.data.updatedColumns,
+              updatedCells: response.data.updatedCells,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(
+        `[SheetsService] Error during sheets.updateRange: ${errorMessage}`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ error: errorMessage }),
+          },
+        ],
+      };
+    }
+  };
+
+  public appendRows = async ({
+    spreadsheetId,
+    range,
+    values,
+  }: {
+    spreadsheetId: string;
+    range: string;
+    values: CellValue[][];
+  }) => {
+    logToFile(
+      `[SheetsService] Starting appendRows for spreadsheet: ${spreadsheetId}, range: ${range}`,
+    );
+    try {
+      const id = extractDocId(spreadsheetId) || spreadsheetId;
+
+      const sheets = await this.getSheetsClient();
+      // INSERT_ROWS so rows below the table are pushed down, not overwritten.
+      const response = await sheets.spreadsheets.values.append({
+        spreadsheetId: id,
+        range: range,
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { majorDimension: 'ROWS', values: values },
+      });
+
+      const updates = response.data.updates;
+      logToFile(`[SheetsService] Finished appendRows for spreadsheet: ${id}`);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              tableRange: response.data.tableRange,
+              updatedRange: updates?.updatedRange,
+              updatedRows: updates?.updatedRows,
+              updatedColumns: updates?.updatedColumns,
+              updatedCells: updates?.updatedCells,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(
+        `[SheetsService] Error during sheets.appendRows: ${errorMessage}`,
       );
       return {
         content: [

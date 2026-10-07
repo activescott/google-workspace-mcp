@@ -40,6 +40,9 @@ The extension provides the following tools:
 - `sheets.getRange`: Gets values from a specific range in a Google Sheets
   spreadsheet.
 - `sheets.getMetadata`: Gets metadata about a Google Sheets spreadsheet.
+- `sheets.updateRange`: Writes values to a range in a Google Sheets spreadsheet.
+- `sheets.appendRows`: Appends rows after the last row of a table in a Google
+  Sheets spreadsheet.
 
 ### Google Drive
 

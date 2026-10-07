@@ -197,6 +197,11 @@ When a feature group is disabled:
 - `sheets.getRange`
 - `sheets.getMetadata`
 
+### `sheets.write`
+
+- `sheets.updateRange`
+- `sheets.appendRows`
+
 ### `time.read`
 
 - `time.getCurrentDate`
