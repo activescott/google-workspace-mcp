@@ -268,7 +268,7 @@ export class SheetsService {
       const response = await sheets.spreadsheets.values.update({
         spreadsheetId: id,
         range: range,
-        valueInputOption: 'USER_ENTERED',
+        valueInputOption: 'RAW',
         requestBody: { range: range, majorDimension: 'ROWS', values: values },
       });
 
@@ -323,7 +323,7 @@ export class SheetsService {
       const response = await sheets.spreadsheets.values.append({
         spreadsheetId: id,
         range: range,
-        valueInputOption: 'USER_ENTERED',
+        valueInputOption: 'RAW',
         insertDataOption: 'INSERT_ROWS',
         requestBody: { majorDimension: 'ROWS', values: values },
       });
