@@ -1085,6 +1085,89 @@ describe('GmailService', () => {
       const response = JSON.parse(result.content[0].text);
       expect(response.error).toBe('Failed to send message');
     });
+
+    it('should send a reply with threadId', async () => {
+      mockGmailAPI.users.threads.get.mockResolvedValue({
+        data: {
+          messages: [
+            {
+              id: 'original-msg',
+              payload: {
+                headers: [
+                  {
+                    name: 'Message-ID',
+                    value: '<original-msg-id@mail.gmail.com>',
+                  },
+                  {
+                    name: 'References',
+                    value: '<earlier-msg-id@mail.gmail.com>',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      });
+
+      mockGmailAPI.users.messages.send.mockResolvedValue({
+        data: { id: 'sent-reply', threadId: 'thread1', labelIds: ['SENT'] },
+      });
+
+      const result = await gmailService.send({
+        to: 'recipient@example.com',
+        subject: 'Re: Original Subject',
+        body: 'Reply body',
+        threadId: 'thread1',
+      });
+
+      // Verify thread was fetched with both Message-ID and References headers
+      expect(mockGmailAPI.users.threads.get).toHaveBeenCalledWith({
+        userId: 'me',
+        id: 'thread1',
+        format: 'metadata',
+        metadataHeaders: ['Message-ID', 'References'],
+      });
+
+      // Verify References is built by appending Message-ID to existing References
+      expect(MimeHelper.createMimeMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          inReplyTo: '<original-msg-id@mail.gmail.com>',
+          references:
+            '<earlier-msg-id@mail.gmail.com> <original-msg-id@mail.gmail.com>',
+        }),
+      );
+
+      // Verify threadId was set on the API request
+      expect(mockGmailAPI.users.messages.send).toHaveBeenCalledWith({
+        userId: 'me',
+        requestBody: {
+          raw: 'base64encodedmessage',
+          threadId: 'thread1',
+        },
+      });
+
+      const response = JSON.parse(result.content[0].text);
+      expect(response.status).toBe('sent');
+      expect(response.threadId).toBe('thread1');
+    });
+
+    it('should refuse to send when the thread fetch fails', async () => {
+      mockGmailAPI.users.threads.get.mockRejectedValue(
+        new Error('Thread not found'),
+      );
+
+      const result = await gmailService.send({
+        to: 'recipient@example.com',
+        subject: 'Re: Original Subject',
+        body: 'Reply body',
+        threadId: 'thread1',
+      });
+
+      expect(mockGmailAPI.users.messages.send).not.toHaveBeenCalled();
+
+      const response = JSON.parse(result.content[0].text);
+      expect(response.error).toMatch(/thread1/);
+    });
   });
 
   describe('createDraft', () => {
