@@ -1789,6 +1789,12 @@ System labels that can be modified:
           .describe(
             'Files to attach to the email. Each entry must reference an absolute local path. Set inline to embed an image in an HTML body.',
           ),
+        threadId: z
+          .string()
+          .optional()
+          .describe(
+            'The thread ID to send the message as a reply to. When provided, the message will be linked to the existing thread with appropriate reply headers.',
+          ),
       },
     },
     gmailService.send,
