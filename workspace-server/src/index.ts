@@ -325,6 +325,12 @@ async function main() {
           .describe(
             'The ID of the tab to modify. If not provided, modifies the first tab.',
           ),
+        suggest: z
+          .boolean()
+          .optional()
+          .describe(
+            'If true, writes the edit as a suggestion that the document owner can accept or reject, instead of editing directly. Defaults to false.',
+          ),
       },
     },
     docsService.writeText,
@@ -396,6 +402,12 @@ async function main() {
           .describe(
             'The ID of the tab to modify. If not provided, replaces in all tabs (legacy behavior).',
           ),
+        suggest: z
+          .boolean()
+          .optional()
+          .describe(
+            'If true, writes the edit as a suggestion that the document owner can accept or reject, instead of editing directly. Defaults to false.',
+          ),
       },
     },
     docsService.replaceText,
@@ -439,9 +451,92 @@ async function main() {
           .describe(
             'The ID of the tab to format. If not provided, formats the first tab.',
           ),
+        suggest: z
+          .boolean()
+          .optional()
+          .describe(
+            'If true, writes the edit as a suggestion that the document owner can accept or reject, instead of editing directly. Defaults to false.',
+          ),
       },
     },
     docsService.formatText,
+  );
+
+  registerTool(
+    'docs.addComment',
+    {
+      description:
+        'Adds a comment to a Google Doc, anchored to a passage of text. Anchor it with quotedText (an exact passage from the document body) or with startIndex and endIndex. Limits: every comment needs an anchor, so a comment on the whole document is not possible; quotedText is matched exactly (case and whitespace) against the body of one tab only, not headers, footers or footnotes; and it cannot span a smart chip, image or table cell boundary. Use startIndex/endIndex (from docs.getSuggestions or a previous edit) when quotedText cannot match.',
+      inputSchema: {
+        documentId: z
+          .string()
+          .describe('The ID or URL of the document to comment on.'),
+        content: z.string().min(1).describe('The text of the comment.'),
+        quotedText: z
+          .string()
+          .optional()
+          .describe(
+            'The exact passage in the document to anchor the comment to.',
+          ),
+        occurrence: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe(
+            'Which match of quotedText to anchor to, counting from 1 (default 1).',
+          ),
+        startIndex: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            'Start index of the range to anchor to. Used with endIndex when quotedText is not given.',
+          ),
+        endIndex: z
+          .number()
+          .int()
+          .optional()
+          .describe('End index (exclusive) of the range to anchor to.'),
+        tabId: z
+          .string()
+          .optional()
+          .describe(
+            'The ID of the tab to comment on. If not provided, uses the first tab.',
+          ),
+      },
+    },
+    docsService.addComment,
+  );
+
+  registerTool(
+    'docs.acceptSuggestion',
+    {
+      description:
+        'Accepts a suggested edit in a Google Doc by suggestion ID (from docs.getSuggestions). Requires edit access to the document.',
+      inputSchema: {
+        documentId: z.string().describe('The ID or URL of the document.'),
+        suggestionId: z
+          .string()
+          .describe('The ID of the suggestion to accept.'),
+      },
+    },
+    docsService.acceptSuggestion,
+  );
+
+  registerTool(
+    'docs.rejectSuggestion',
+    {
+      description:
+        'Rejects a suggested edit in a Google Doc by suggestion ID (from docs.getSuggestions). Requires edit access to the document, or being the author of the suggestion.',
+      inputSchema: {
+        documentId: z.string().describe('The ID or URL of the document.'),
+        suggestionId: z
+          .string()
+          .describe('The ID of the suggestion to reject.'),
+      },
+    },
+    docsService.rejectSuggestion,
   );
 
   // Slides tools

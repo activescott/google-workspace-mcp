@@ -118,6 +118,9 @@ When a feature group is disabled:
 - `docs.writeText`
 - `docs.replaceText`
 - `docs.formatText`
+- `docs.addComment`
+- `docs.acceptSuggestion`
+- `docs.rejectSuggestion`
 
 ### `drive.read`
 

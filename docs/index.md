@@ -24,6 +24,13 @@ The extension provides the following tools:
   a Google Doc.
 - `docs.formatText`: Applies formatting (bold, italic, headings, etc.) to text
   ranges in a Google Doc.
+- `docs.addComment`: Adds a comment to a Google Doc, anchored to a quoted
+  passage or an index range.
+- `docs.acceptSuggestion`: Accepts a suggested edit by suggestion ID.
+- `docs.rejectSuggestion`: Rejects a suggested edit by suggestion ID.
+
+`docs.writeText`, `docs.replaceText` and `docs.formatText` take `suggest: true`
+to write the edit as a suggestion instead of editing directly.
 
 ### Google Slides
 

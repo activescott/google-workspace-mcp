@@ -247,6 +247,47 @@ Use `drive.getComments` to retrieve all comments on a document:
 drive.getComments({ fileId: "doc-id" })
 ```
 
+### Adding Comments
+
+Use `docs.addComment` to comment on a passage. Pass `quotedText`, an exact
+passage from the document body, and the comment is anchored to it. Use
+`occurrence` to pick a later match.
+
+```
+docs.addComment({
+  documentId: "doc-id",
+  content: "Which date does this refer to?",
+  quotedText: "ships the beta"
+})
+```
+
+Every comment needs an anchor; a comment on the whole document isn't possible.
+`quotedText` is matched exactly against one tab's body (not headers, footers or
+footnotes) and can't span a smart chip, image or table cell boundary. If it
+can't match, pass `startIndex` and `endIndex` instead.
+
+### Suggesting Edits
+
+`docs.writeText`, `docs.replaceText` and `docs.formatText` take `suggest: true`.
+The edit then appears as a suggestion the document owner can accept or reject,
+and the result lists the new suggestion IDs. Use this when editing someone
+else's document.
+
+```
+docs.replaceText({
+  documentId: "doc-id",
+  findText: "Q3",
+  replaceText: "Q4",
+  suggest: true
+})
+```
+
+### Accepting and Rejecting Suggestions
+
+Use `docs.acceptSuggestion` or `docs.rejectSuggestion` with a suggestion ID from
+`docs.getSuggestions`. Accepting needs edit access; rejecting needs edit access
+or authorship of the suggestion.
+
 ### Reading Suggestions
 
 Use `docs.getSuggestions` to retrieve suggested edits from a document:
