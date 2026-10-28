@@ -805,6 +805,132 @@ describe('DocsService Comments and Suggestions', () => {
         'Tab with ID missing not found.',
       );
     });
+
+    it('should find and remove bullets inherited by text written after a list', async () => {
+      const paragraph = (
+        startIndex: number,
+        content: string,
+        namedStyleType: string,
+        bulleted: boolean,
+      ) => ({
+        startIndex,
+        endIndex: startIndex + content.length,
+        paragraph: {
+          paragraphStyle: { namedStyleType },
+          ...(bulleted && { bullet: { listId: 'kix.list1' } }),
+          elements: [
+            {
+              startIndex,
+              endIndex: startIndex + content.length,
+              textRun: { content, textStyle: {} },
+            },
+          ],
+        },
+      });
+      const docWith = (...content: object[]) => ({
+        data: {
+          title: 'Plan',
+          tabs: [
+            {
+              tabProperties: { tabId: 't.0', title: 'Tab 1' },
+              documentTab: { body: { content } },
+            },
+          ],
+        },
+      });
+      const list = [
+        paragraph(1, 'Plan\n', 'HEADING_1', false),
+        paragraph(6, 'One\n', 'NORMAL_TEXT', true),
+        paragraph(10, 'Two\n', 'NORMAL_TEXT', true),
+      ];
+      mockDocsAPI.documents.batchUpdate.mockResolvedValue({ data: {} });
+      // First read: the new section inherited the list's bullets.
+      mockDocsAPI.documents.get.mockResolvedValueOnce(
+        docWith(
+          ...list,
+          paragraph(14, 'Next\n', 'NORMAL_TEXT', true),
+          paragraph(19, 'Body\n', 'NORMAL_TEXT', true),
+        ),
+      );
+      // Second read: after removeBullets and heading2.
+      mockDocsAPI.documents.get.mockResolvedValueOnce(
+        docWith(
+          ...list,
+          paragraph(14, 'Next\n', 'HEADING_2', false),
+          paragraph(19, 'Body\n', 'NORMAL_TEXT', false),
+        ),
+      );
+
+      await docsService.writeText({
+        documentId: 'doc-1',
+        text: 'Next\nBody\n',
+      });
+
+      const first = JSON.parse(
+        (await docsService.getStructure({ documentId: 'doc-1' })).content[0]
+          .text,
+      );
+      const inherited = first.tabs[0].paragraphs.filter(
+        (p: { startIndex: number; bullet?: object }) =>
+          p.startIndex >= 14 && p.bullet,
+      );
+      expect(inherited.map((p: { text: string }) => p.text)).toEqual([
+        'Next\n',
+        'Body\n',
+      ]);
+
+      await docsService.formatText({
+        documentId: 'doc-1',
+        formats: [
+          {
+            startIndex: inherited[0].startIndex,
+            endIndex: inherited[inherited.length - 1].endIndex,
+            style: 'removeBullets',
+          },
+          {
+            startIndex: inherited[0].startIndex,
+            endIndex: inherited[0].endIndex,
+            style: 'heading2',
+          },
+        ],
+      });
+
+      expect(
+        mockDocsAPI.documents.batchUpdate.mock.calls[1][0].requestBody.requests,
+      ).toEqual([
+        {
+          deleteParagraphBullets: { range: { startIndex: 14, endIndex: 24 } },
+        },
+        expect.objectContaining({
+          updateParagraphStyle: expect.objectContaining({
+            range: { startIndex: 14, endIndex: 19 },
+            paragraphStyle: { namedStyleType: 'HEADING_2' },
+          }),
+        }),
+      ]);
+
+      const second = JSON.parse(
+        (await docsService.getStructure({ documentId: 'doc-1' })).content[0]
+          .text,
+      );
+      const section = second.tabs[0].paragraphs.filter(
+        (p: { startIndex: number }) => p.startIndex >= 14,
+      );
+      expect(section).toEqual([
+        {
+          startIndex: 14,
+          endIndex: 19,
+          text: 'Next\n',
+          namedStyle: 'HEADING_2',
+        },
+        {
+          startIndex: 19,
+          endIndex: 24,
+          text: 'Body\n',
+          namedStyle: 'NORMAL_TEXT',
+        },
+      ]);
+    });
   });
 
   describe('addComment', () => {
