@@ -752,8 +752,8 @@ describe('DocsService Comments and Suggestions', () => {
       });
 
       expect(result).toHaveProperty('isError', true);
-      expect(JSON.parse(result.content[0].text).error).toBe(
-        'The Docs API did not save the comment.',
+      expect(JSON.parse(result.content[0].text).error).toContain(
+        'comment was not saved',
       );
     });
   });

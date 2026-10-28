@@ -1028,7 +1028,9 @@ export class DocsService {
     );
     try {
       if (!content.trim()) {
-        throw new Error('Comment content cannot be empty.');
+        throw new Error(
+          'Comment content is empty, so no comment was added. Pass the comment text in content.',
+        );
       }
       const id = extractDocId(documentId) || documentId;
       const docs = await this.getDocsClient();
@@ -1061,7 +1063,7 @@ export class DocsService {
         }
         if (pos === -1) {
           throw new Error(
-            `Could not find occurrence ${occurrence} of the quoted text in the document body. The quote must match the body text exactly and cannot span a smart chip, image or table cell boundary.`,
+            `Could not find occurrence ${occurrence} of the quoted text in the document body. The quote must match the body text exactly and cannot span a smart chip, image or table cell boundary. No comment was added. Copy the passage from docs.getText, or pass startIndex and endIndex instead.`,
           );
         }
         range = {
@@ -1081,7 +1083,9 @@ export class DocsService {
         { insertComment: { content, range } },
       ]);
       if (result.commentUpdateState === 'ALL_FAILED_UNKNOWN_REASON') {
-        throw new Error('The Docs API did not save the comment.');
+        throw new Error(
+          'The Docs API reported that the comment was not saved. Check that you can comment on this document, then retry.',
+        );
       }
       const thread = result.replies?.[0]?.insertComment?.commentThread;
 
