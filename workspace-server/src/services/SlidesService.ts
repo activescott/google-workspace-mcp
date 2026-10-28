@@ -35,9 +35,71 @@ export type SlidesTextRange =
   | { type: 'FIXED_RANGE'; startIndex: number; endIndex: number }
   | { type: 'FROM_START_INDEX'; startIndex: number };
 
+export const THUMBNAIL_SIZES = ['SMALL', 'MEDIUM', 'LARGE'] as const;
+export type ThumbnailSize = (typeof THUMBNAIL_SIZES)[number];
+
 type ToolResult = {
   isError?: boolean;
   content: Array<{ type: 'text'; text: string }>;
+};
+
+type ImageToolResult = {
+  isError?: boolean;
+  content: Array<
+    | { type: 'text'; text: string }
+    | { type: 'image'; data: string; mimeType: string }
+  >;
+};
+
+const EMU_PER_PT = 12700;
+
+/** An affine transform as the Slides API writes it, with unset fields filled. */
+type Affine = {
+  scaleX: number;
+  scaleY: number;
+  shearX: number;
+  shearY: number;
+  translateX: number;
+  translateY: number;
+};
+
+const IDENTITY: Affine = {
+  scaleX: 1,
+  scaleY: 1,
+  shearX: 0,
+  shearY: 0,
+  translateX: 0,
+  translateY: 0,
+};
+
+export type SlideParagraph = {
+  startIndex: number;
+  endIndex: number;
+  text: string;
+  bullet?: { nestingLevel: number; glyph?: string };
+  links?: Array<{
+    startIndex: number;
+    endIndex: number;
+    text: string;
+    url?: string;
+    slideObjectId?: string;
+    relativeLink?: string;
+  }>;
+};
+
+export type SlideElement = {
+  objectId: string;
+  type: string;
+  placeholder?: string;
+  title?: string;
+  description?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  paragraphs?: SlideParagraph[];
+  table?: { rows: number; columns: number; cells: string[][] };
+  children?: SlideElement[];
 };
 
 export class SlidesService {
@@ -1210,6 +1272,287 @@ export class SlidesService {
       });
     } catch (error) {
       return this.formatError('slides.updateShapeProperties', error);
+    }
+  };
+
+  public listElements = async ({
+    presentationId,
+    slideObjectId,
+  }: {
+    presentationId: string;
+    slideObjectId?: string;
+  }) => {
+    logToFile(
+      `[SlidesService] Listing page elements for presentation: ${presentationId}${slideObjectId ? `, slide: ${slideObjectId}` : ''}`,
+    );
+    try {
+      const id = extractDocId(presentationId) || presentationId;
+      const slides = await this.getSlidesClient();
+
+      // The whole of each page element: groups nest to any depth, and a
+      // field mask cannot name a recursive path.
+      const presentation = await slides.presentations.get({
+        presentationId: id,
+        fields: 'presentationId,pageSize,slides(objectId,pageElements)',
+      });
+
+      const allSlides = presentation.data.slides ?? [];
+      const wanted = allSlides
+        .map((slide, slideIndex) => ({ slide, slideIndex }))
+        .filter(
+          ({ slide }) => !slideObjectId || slide.objectId === slideObjectId,
+        );
+      if (slideObjectId && wanted.length === 0) {
+        throw new Error(`Slide not found: ${slideObjectId}`);
+      }
+
+      const pageSize = presentation.data.pageSize;
+      const result = {
+        presentationId: id,
+        unit: 'PT',
+        pageSize:
+          pageSize?.width && pageSize?.height
+            ? {
+                width: this.toPt(pageSize.width),
+                height: this.toPt(pageSize.height),
+              }
+            : undefined,
+        slides: wanted.map(({ slide, slideIndex }) => ({
+          slideIndex,
+          slideObjectId: slide.objectId,
+          elements: (slide.pageElements ?? []).map((element) =>
+            this.describeElement(element, IDENTITY),
+          ),
+        })),
+      };
+
+      logToFile(`[SlidesService] Listed page elements for presentation: ${id}`);
+      return this.formatResult(result);
+    } catch (error) {
+      return this.formatError('slides.listElements', error);
+    }
+  };
+
+  private toPt(dimension: slides_v1.Schema$Dimension): number {
+    const magnitude = dimension.magnitude ?? 0;
+    return dimension.unit === 'PT' ? magnitude : magnitude / EMU_PER_PT;
+  }
+
+  private round(n: number): number {
+    return Math.round(n * 100) / 100;
+  }
+
+  /**
+   * The API's PageElement.transform: "To compute the absolute transform,
+   * preconcatenate a page element's transform with the transforms of all of
+   * its parent groups." So a child's absolute transform is parent × child.
+   */
+  private compose(
+    parent: Affine,
+    child: slides_v1.Schema$AffineTransform | undefined,
+  ): Affine {
+    const toPt = (n: number | null | undefined) =>
+      child?.unit === 'PT' ? (n ?? 0) : (n ?? 0) / EMU_PER_PT;
+    const c: Affine = {
+      scaleX: child?.scaleX ?? 1,
+      scaleY: child?.scaleY ?? 1,
+      shearX: child?.shearX ?? 0,
+      shearY: child?.shearY ?? 0,
+      translateX: toPt(child?.translateX),
+      translateY: toPt(child?.translateY),
+    };
+    const p = parent;
+    return {
+      scaleX: p.scaleX * c.scaleX + p.shearX * c.shearY,
+      shearY: p.shearY * c.scaleX + p.scaleY * c.shearY,
+      shearX: p.scaleX * c.shearX + p.shearX * c.scaleY,
+      scaleY: p.shearY * c.shearX + p.scaleY * c.scaleY,
+      translateX:
+        p.scaleX * c.translateX + p.shearX * c.translateY + p.translateX,
+      translateY:
+        p.shearY * c.translateX + p.scaleY * c.translateY + p.translateY,
+    };
+  }
+
+  private describeElement(
+    element: slides_v1.Schema$PageElement,
+    parent: Affine,
+  ): SlideElement {
+    const transform = this.compose(parent, element.transform ?? undefined);
+    const described: SlideElement = {
+      objectId: element.objectId ?? '',
+      type: this.elementType(element),
+    };
+    const placeholder = element.shape?.placeholder?.type;
+    if (placeholder) described.placeholder = placeholder;
+    if (element.title) described.title = element.title;
+    if (element.description) described.description = element.description;
+
+    if (element.transform) {
+      described.x = this.round(transform.translateX);
+      described.y = this.round(transform.translateY);
+    }
+    // A placeholder can leave its size to the layout, and a group has none
+    // of its own; both are left out rather than guessed.
+    if (element.size?.width && element.size?.height) {
+      described.width = this.round(
+        this.toPt(element.size.width) *
+          Math.hypot(transform.scaleX, transform.shearY),
+      );
+      described.height = this.round(
+        this.toPt(element.size.height) *
+          Math.hypot(transform.shearX, transform.scaleY),
+      );
+    }
+
+    if (element.shape?.text) {
+      described.paragraphs = this.paragraphsOf(element.shape.text);
+    }
+    if (element.table) {
+      described.table = {
+        rows: element.table.rows ?? element.table.tableRows?.length ?? 0,
+        columns: element.table.columns ?? 0,
+        cells: (element.table.tableRows ?? []).map((row) =>
+          (row.tableCells ?? []).map((cell) =>
+            cell.text ? this.extractTextFromTextContent(cell.text).trim() : '',
+          ),
+        ),
+      };
+    }
+    if (element.elementGroup) {
+      described.children = (element.elementGroup.children ?? []).map((child) =>
+        this.describeElement(child, transform),
+      );
+    }
+    return described;
+  }
+
+  private elementType(element: slides_v1.Schema$PageElement): string {
+    if (element.shape) return element.shape.shapeType ?? 'SHAPE';
+    if (element.image) return 'IMAGE';
+    if (element.table) return 'TABLE';
+    if (element.line) return 'LINE';
+    if (element.elementGroup) return 'GROUP';
+    if (element.video) return 'VIDEO';
+    if (element.sheetsChart) return 'SHEETS_CHART';
+    if (element.wordArt) return 'WORD_ART';
+    if (element.speakerSpotlight) return 'SPEAKER_SPOTLIGHT';
+    return 'UNKNOWN';
+  }
+
+  /**
+   * Each paragraph with the indexes slides.insertText, slides.deleteText and
+   * slides.updateTextStyle take. The API leaves startIndex out when it is 0.
+   * endIndex includes the paragraph's closing newline; text does not.
+   */
+  private paragraphsOf(text: slides_v1.Schema$TextContent): SlideParagraph[] {
+    const paragraphs: SlideParagraph[] = [];
+    let current: SlideParagraph | undefined;
+    for (const element of text.textElements ?? []) {
+      const startIndex = element.startIndex ?? 0;
+      const endIndex = element.endIndex ?? startIndex;
+      if (element.paragraphMarker) {
+        current = { startIndex, endIndex, text: '' };
+        const bullet = element.paragraphMarker.bullet;
+        if (bullet) {
+          current.bullet = { nestingLevel: bullet.nestingLevel ?? 0 };
+          const glyph = bullet.glyph?.trim();
+          if (glyph) current.bullet.glyph = glyph;
+        }
+        paragraphs.push(current);
+        continue;
+      }
+      const content = element.textRun?.content ?? element.autoText?.content;
+      if (content === undefined || content === null || !current) continue;
+      current.text += content;
+      const link = element.textRun?.style?.link;
+      if (link) {
+        const linkText = content.replace(/\n$/, '');
+        const previous = current.links?.[current.links.length - 1];
+        const sameTarget =
+          previous &&
+          previous.endIndex === startIndex &&
+          previous.url === (link.url ?? undefined) &&
+          previous.slideObjectId === (link.pageObjectId ?? undefined) &&
+          previous.relativeLink === (link.relativeLink ?? undefined);
+        if (sameTarget) {
+          previous.endIndex = startIndex + linkText.length;
+          previous.text += linkText;
+        } else {
+          current.links ??= [];
+          current.links.push({
+            startIndex,
+            endIndex: startIndex + linkText.length,
+            text: linkText,
+            ...(link.url ? { url: link.url } : {}),
+            ...(link.pageObjectId ? { slideObjectId: link.pageObjectId } : {}),
+            ...(link.relativeLink ? { relativeLink: link.relativeLink } : {}),
+          });
+        }
+      }
+    }
+    for (const paragraph of paragraphs) {
+      paragraph.text = paragraph.text.replace(/\n$/, '');
+    }
+    return paragraphs;
+  }
+
+  public getSlideImage = async ({
+    presentationId,
+    slideObjectId,
+    size = 'MEDIUM',
+  }: {
+    presentationId: string;
+    slideObjectId: string;
+    size?: ThumbnailSize;
+  }): Promise<ImageToolResult> => {
+    logToFile(
+      `[SlidesService] Rendering slide ${slideObjectId} of presentation: ${presentationId} (${size})`,
+    );
+    try {
+      if (!THUMBNAIL_SIZES.includes(size)) {
+        throw new Error(
+          `Invalid size "${size}". Expected one of: ${THUMBNAIL_SIZES.join(', ')}.`,
+        );
+      }
+      const id = extractDocId(presentationId) || presentationId;
+      const slides = await this.getSlidesClient();
+      const thumbnail = await slides.presentations.pages.getThumbnail({
+        presentationId: id,
+        pageObjectId: slideObjectId,
+        'thumbnailProperties.mimeType': 'PNG',
+        'thumbnailProperties.thumbnailSize': size,
+      });
+
+      const contentUrl = thumbnail.data.contentUrl;
+      if (!contentUrl) {
+        throw new Error('getThumbnail returned no contentUrl.');
+      }
+      // The contentUrl is short-lived and needs no credential.
+      const response = await request({
+        url: contentUrl,
+        responseType: 'arraybuffer',
+        ...gaxiosOptions,
+      });
+      const data = Buffer.from(response.data as ArrayBuffer).toString('base64');
+
+      logToFile(`[SlidesService] Rendered slide: ${slideObjectId}`);
+      return {
+        content: [
+          { type: 'image' as const, data, mimeType: 'image/png' },
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              presentationId: id,
+              slideObjectId,
+              width: thumbnail.data.width,
+              height: thumbnail.data.height,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      return this.formatError('slides.getSlideImage', error);
     }
   };
 

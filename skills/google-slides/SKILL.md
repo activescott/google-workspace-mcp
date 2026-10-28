@@ -36,7 +36,15 @@ organized by slide with clear separators.
 
 Use `slides.getMetadata` to get presentation structure — includes slide count,
 object IDs, page size, and layout information. Slide object IDs from metadata
-can be used with `slides.getSlideThumbnail`.
+can be used with `slides.getSlideThumbnail` and `slides.getSlideImage`.
+
+### Page Elements
+
+Use `slides.listElements` to find the boxes on each slide: every page element's
+`objectId`, type, position and size in points, and for text, each paragraph's
+`startIndex` and `endIndex` with its bullet and links. Those are the IDs and
+indexes `slides.insertText`, `slides.deleteText` and `slides.updateTextStyle`
+take. Pass `slideObjectId` to list one slide.
 
 ## Downloading Images
 
@@ -50,6 +58,9 @@ local directory. Requires an **absolute path** for the output directory.
 Use `slides.getSlideThumbnail` to download a thumbnail of a specific slide.
 Requires the slide's `objectId` (from `slides.getMetadata` or `slides.getText`)
 and an **absolute path** for the output file.
+
+To look at a slide rather than save it, use `slides.getSlideImage`, which
+returns the PNG itself and writes no file.
 
 ## ID Handling
 

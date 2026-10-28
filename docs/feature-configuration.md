@@ -190,6 +190,8 @@ When a feature group is disabled:
 - `slides.getMetadata`
 - `slides.getImages`
 - `slides.getSlideThumbnail`
+- `slides.getSlideImage`
+- `slides.listElements`
 
 ### `sheets.read`
 

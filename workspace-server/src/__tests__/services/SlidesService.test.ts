@@ -404,6 +404,451 @@ describe('SlidesService', () => {
     });
   });
 
+  describe('listElements', () => {
+    // Two text boxes side by side, as an assistant finds them in a deck it
+    // did not build: units in EMU, startIndex left out where it is 0.
+    const twoColumnSlide = {
+      objectId: 'slide2',
+      pageElements: [
+        {
+          objectId: 'done_box',
+          size: {
+            width: { magnitude: 3937000, unit: 'EMU' },
+            height: { magnitude: 3175000, unit: 'EMU' },
+          },
+          transform: {
+            scaleX: 1,
+            scaleY: 1,
+            translateX: 508000,
+            translateY: 1460500,
+            unit: 'EMU',
+          },
+          shape: {
+            shapeType: 'TEXT_BOX',
+            text: {
+              textElements: [
+                {
+                  endIndex: 10,
+                  paragraphMarker: {
+                    style: {},
+                    bullet: { listId: 'list1', glyph: '●' },
+                  },
+                },
+                { endIndex: 10, textRun: { content: 'Ship docs\n' } },
+                {
+                  startIndex: 10,
+                  endIndex: 25,
+                  paragraphMarker: {
+                    style: {},
+                    bullet: { listId: 'list1', nestingLevel: 1, glyph: '○' },
+                  },
+                },
+                {
+                  startIndex: 10,
+                  endIndex: 14,
+                  textRun: { content: 'See ', style: {} },
+                },
+                {
+                  startIndex: 14,
+                  endIndex: 17,
+                  textRun: {
+                    content: 'PR ',
+                    style: { link: { url: 'https://example.com/pr/1' } },
+                  },
+                },
+                {
+                  startIndex: 17,
+                  endIndex: 20,
+                  textRun: {
+                    content: '#12',
+                    style: {
+                      bold: true,
+                      link: { url: 'https://example.com/pr/1' },
+                    },
+                  },
+                },
+                {
+                  startIndex: 20,
+                  endIndex: 25,
+                  textRun: { content: ' now\n', style: {} },
+                },
+              ],
+            },
+          },
+        },
+        {
+          objectId: 'not_done_box',
+          size: {
+            width: { magnitude: 310, unit: 'PT' },
+            height: { magnitude: 250, unit: 'PT' },
+          },
+          transform: {
+            scaleX: 1,
+            scaleY: 1,
+            translateX: 370,
+            translateY: 115,
+            unit: 'PT',
+          },
+          shape: {
+            shapeType: 'TEXT_BOX',
+            placeholder: { type: 'BODY' },
+            text: {
+              textElements: [
+                { endIndex: 6, paragraphMarker: { style: {} } },
+                { endIndex: 6, textRun: { content: 'Login\n' } },
+              ],
+            },
+          },
+        },
+      ],
+    };
+
+    it('lists each element with its ID, type, position, size and paragraphs', async () => {
+      mockSlidesAPI.presentations.get.mockResolvedValue({
+        data: {
+          presentationId: 'deck1',
+          pageSize: {
+            width: { magnitude: 9144000, unit: 'EMU' },
+            height: { magnitude: 5143500, unit: 'EMU' },
+          },
+          slides: [{ objectId: 'slide1', pageElements: [] }, twoColumnSlide],
+        },
+      });
+
+      const result = await slidesService.listElements({
+        presentationId: 'deck1',
+      });
+
+      expect(mockSlidesAPI.presentations.get).toHaveBeenCalledWith({
+        presentationId: 'deck1',
+        fields: 'presentationId,pageSize,slides(objectId,pageElements)',
+      });
+      expect(result.isError).toBeUndefined();
+      const response = JSON.parse(result.content[0].text);
+      expect(response.pageSize).toEqual({ width: 720, height: 405 });
+      expect(response.slides).toHaveLength(2);
+      expect(response.slides[1]).toEqual({
+        slideIndex: 1,
+        slideObjectId: 'slide2',
+        elements: [
+          {
+            objectId: 'done_box',
+            type: 'TEXT_BOX',
+            x: 40,
+            y: 115,
+            width: 310,
+            height: 250,
+            paragraphs: [
+              {
+                startIndex: 0,
+                endIndex: 10,
+                text: 'Ship docs',
+                bullet: { nestingLevel: 0, glyph: '●' },
+              },
+              {
+                startIndex: 10,
+                endIndex: 25,
+                text: 'See PR #12 now',
+                bullet: { nestingLevel: 1, glyph: '○' },
+                links: [
+                  {
+                    startIndex: 14,
+                    endIndex: 20,
+                    text: 'PR #12',
+                    url: 'https://example.com/pr/1',
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            objectId: 'not_done_box',
+            type: 'TEXT_BOX',
+            placeholder: 'BODY',
+            x: 370,
+            y: 115,
+            width: 310,
+            height: 250,
+            paragraphs: [{ startIndex: 0, endIndex: 6, text: 'Login' }],
+          },
+        ],
+      });
+    });
+
+    it('lists one slide when slideObjectId is given', async () => {
+      mockSlidesAPI.presentations.get.mockResolvedValue({
+        data: {
+          presentationId: 'deck1',
+          slides: [{ objectId: 'slide1', pageElements: [] }, twoColumnSlide],
+        },
+      });
+
+      const result = await slidesService.listElements({
+        presentationId: 'deck1',
+        slideObjectId: 'slide2',
+      });
+
+      const response = JSON.parse(result.content[0].text);
+      expect(response.slides).toHaveLength(1);
+      expect(response.slides[0].slideObjectId).toBe('slide2');
+      expect(response.slides[0].slideIndex).toBe(1);
+    });
+
+    it('refuses a slide that is not in the deck', async () => {
+      mockSlidesAPI.presentations.get.mockResolvedValue({
+        data: { presentationId: 'deck1', slides: [{ objectId: 'slide1' }] },
+      });
+
+      const result = await slidesService.listElements({
+        presentationId: 'deck1',
+        slideObjectId: 'nope',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text).error).toBe(
+        'Slide not found: nope',
+      );
+    });
+
+    it('places a group child by its absolute transform', async () => {
+      mockSlidesAPI.presentations.get.mockResolvedValue({
+        data: {
+          presentationId: 'deck1',
+          slides: [
+            {
+              objectId: 'slide1',
+              pageElements: [
+                {
+                  objectId: 'group1',
+                  transform: {
+                    scaleX: 2,
+                    scaleY: 2,
+                    translateX: 100,
+                    translateY: 50,
+                    unit: 'PT',
+                  },
+                  elementGroup: {
+                    children: [
+                      {
+                        objectId: 'child1',
+                        size: {
+                          width: { magnitude: 50, unit: 'PT' },
+                          height: { magnitude: 20, unit: 'PT' },
+                        },
+                        transform: {
+                          scaleX: 1,
+                          scaleY: 1,
+                          translateX: 10,
+                          translateY: 5,
+                          unit: 'PT',
+                        },
+                        image: { contentUrl: 'https://example.com/i.png' },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      });
+
+      const result = await slidesService.listElements({
+        presentationId: 'deck1',
+      });
+
+      const [group] = JSON.parse(result.content[0].text).slides[0].elements;
+      expect(group).toEqual({
+        objectId: 'group1',
+        type: 'GROUP',
+        x: 100,
+        y: 50,
+        children: [
+          {
+            objectId: 'child1',
+            type: 'IMAGE',
+            x: 120,
+            y: 60,
+            width: 100,
+            height: 40,
+          },
+        ],
+      });
+    });
+
+    it('gives a table its size and cell text', async () => {
+      mockSlidesAPI.presentations.get.mockResolvedValue({
+        data: {
+          presentationId: 'deck1',
+          slides: [
+            {
+              objectId: 'slide1',
+              pageElements: [
+                {
+                  objectId: 'table1',
+                  table: {
+                    rows: 1,
+                    columns: 2,
+                    tableRows: [
+                      {
+                        tableCells: [
+                          {
+                            text: {
+                              textElements: [{ textRun: { content: 'A\n' } }],
+                            },
+                          },
+                          {},
+                        ],
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      });
+
+      const result = await slidesService.listElements({
+        presentationId: 'deck1',
+      });
+
+      const [table] = JSON.parse(result.content[0].text).slides[0].elements;
+      expect(table).toEqual({
+        objectId: 'table1',
+        type: 'TABLE',
+        table: { rows: 1, columns: 2, cells: [['A', '']] },
+      });
+    });
+
+    it('returns an error result when the API fails', async () => {
+      mockSlidesAPI.presentations.get.mockRejectedValue(new Error('API Error'));
+
+      const result = await slidesService.listElements({
+        presentationId: 'deck1',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text).error).toBe('API Error');
+    });
+  });
+
+  describe('getSlideImage', () => {
+    beforeEach(() => {
+      mockSlidesAPI.presentations.pages = {
+        getThumbnail: jest.fn(),
+      };
+    });
+
+    it('returns the slide as an inline PNG and writes no file', async () => {
+      mockSlidesAPI.presentations.pages.getThumbnail.mockResolvedValue({
+        data: {
+          width: 800,
+          height: 450,
+          contentUrl: 'https://example.com/thumb.png',
+        },
+      });
+      (request as any).mockResolvedValue({ data: Buffer.from('png-bytes') });
+
+      const result = await slidesService.getSlideImage({
+        presentationId: 'deck1',
+        slideObjectId: 'slide1',
+      });
+
+      expect(
+        mockSlidesAPI.presentations.pages.getThumbnail,
+      ).toHaveBeenCalledWith({
+        presentationId: 'deck1',
+        pageObjectId: 'slide1',
+        'thumbnailProperties.mimeType': 'PNG',
+        'thumbnailProperties.thumbnailSize': 'MEDIUM',
+      });
+      expect(request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: 'https://example.com/thumb.png',
+          responseType: 'arraybuffer',
+        }),
+      );
+      expect(fs.writeFile).not.toHaveBeenCalled();
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0]).toEqual({
+        type: 'image',
+        data: Buffer.from('png-bytes').toString('base64'),
+        mimeType: 'image/png',
+      });
+      const meta = result.content[1] as { type: 'text'; text: string };
+      expect(JSON.parse(meta.text)).toEqual({
+        presentationId: 'deck1',
+        slideObjectId: 'slide1',
+        width: 800,
+        height: 450,
+      });
+    });
+
+    it('passes the requested size through', async () => {
+      mockSlidesAPI.presentations.pages.getThumbnail.mockResolvedValue({
+        data: { contentUrl: 'https://example.com/thumb.png' },
+      });
+
+      await slidesService.getSlideImage({
+        presentationId: 'deck1',
+        slideObjectId: 'slide1',
+        size: 'LARGE',
+      });
+
+      expect(
+        mockSlidesAPI.presentations.pages.getThumbnail,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          'thumbnailProperties.thumbnailSize': 'LARGE',
+        }),
+      );
+    });
+
+    it('refuses a size the API does not have', async () => {
+      const result = await slidesService.getSlideImage({
+        presentationId: 'deck1',
+        slideObjectId: 'slide1',
+        size: 'HUGE' as any,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(
+        mockSlidesAPI.presentations.pages.getThumbnail,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('returns an error result when the thumbnail has no contentUrl', async () => {
+      mockSlidesAPI.presentations.pages.getThumbnail.mockResolvedValue({
+        data: {},
+      });
+
+      const result = await slidesService.getSlideImage({
+        presentationId: 'deck1',
+        slideObjectId: 'slide1',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(request).not.toHaveBeenCalled();
+    });
+
+    it('returns an error result when the download fails', async () => {
+      mockSlidesAPI.presentations.pages.getThumbnail.mockResolvedValue({
+        data: { contentUrl: 'https://example.com/thumb.png' },
+      });
+      (request as any).mockRejectedValue(new Error('403'));
+
+      const result = await slidesService.getSlideImage({
+        presentationId: 'deck1',
+        slideObjectId: 'slide1',
+      });
+
+      expect(result.isError).toBe(true);
+      const error = result.content[0] as { type: 'text'; text: string };
+      expect(JSON.parse(error.text).error).toBe('403');
+    });
+  });
+
   describe('create', () => {
     it('should create a new presentation', async () => {
       mockSlidesAPI.presentations.create.mockResolvedValue({
