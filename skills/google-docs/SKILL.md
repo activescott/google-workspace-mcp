@@ -281,6 +281,22 @@ Every comment needs an anchor; a comment on the whole document isn't possible.
 footnotes) and can't span a smart chip, image or table cell boundary. If it
 can't match, pass `startIndex` and `endIndex` instead.
 
+### Replying to and Resolving Comments
+
+Use `drive.replyToComment` to answer a comment thread, and
+`drive.resolveComment` to resolve one, optionally with a closing note. Both take
+the comment `id` from `drive.getComments`.
+
+```
+drive.replyToComment({
+  fileId: "doc-id",
+  commentId: "comment-id",
+  content: "Fixed in the second paragraph."
+})
+
+drive.resolveComment({ fileId: "doc-id", commentId: "comment-id" })
+```
+
 ### Suggesting Edits
 
 `docs.writeText`, `docs.replaceText` and `docs.formatText` take `suggest: true`.

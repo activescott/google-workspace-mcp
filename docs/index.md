@@ -58,6 +58,10 @@ to write the edit as a suggestion instead of editing directly.
 - `drive.downloadFile`: Downloads a file from Google Drive to a local path.
 - `drive.trashFile`: Moves a file or folder to the trash in Google Drive.
 - `drive.renameFile`: Renames a file or folder in Google Drive.
+- `drive.getComments`: Retrieves every comment on a file, with the quoted text
+  each is anchored to and its replies.
+- `drive.replyToComment`: Replies to an existing comment thread.
+- `drive.resolveComment`: Resolves a comment thread, with an optional reply.
 
 ### Google Calendar
 

@@ -136,6 +136,8 @@ When a feature group is disabled:
 - `drive.moveFile`
 - `drive.trashFile`
 - `drive.renameFile`
+- `drive.replyToComment`
+- `drive.resolveComment`
 
 ### `calendar.read`
 

@@ -280,7 +280,7 @@ async function main() {
     'drive.getComments',
     {
       description:
-        'Retrieves comments from a Google Drive file (Docs, Sheets, Slides, etc.).',
+        'Retrieves all comments from a Google Drive file (Docs, Sheets, Slides, etc.). Each comment has its id, content, author, createdTime, resolved, quotedFileContent.value (the text the comment is anchored to, absent for unanchored comments) and replies (each with id, content, author, createdTime and action, which is "resolve" or "reopen" when the reply changed the thread\'s state). Pass a comment id to drive.replyToComment or drive.resolveComment.',
       inputSchema: {
         fileId: z
           .string()
@@ -1161,6 +1161,51 @@ async function main() {
       },
     },
     driveService.renameFile,
+  );
+
+  registerTool(
+    'drive.replyToComment',
+    {
+      description:
+        'Replies to an existing comment thread on a Google Drive file (Docs, Sheets, Slides, etc.). The reply appears under the comment, posted as the signed-in user, and notifies the people in the thread. Get the comment ID from drive.getComments. Returns the new reply ID.',
+      inputSchema: {
+        fileId: z
+          .string()
+          .describe('The ID or URL of the file the comment is on.'),
+        commentId: z
+          .string()
+          .describe('The ID of the comment thread, from drive.getComments.'),
+        content: z
+          .string()
+          .trim()
+          .min(1)
+          .describe('The text of the reply, as plain text.'),
+      },
+    },
+    driveService.replyToComment,
+  );
+
+  registerTool(
+    'drive.resolveComment',
+    {
+      description:
+        'Resolves a comment thread on a Google Drive file (Docs, Sheets, Slides, etc.), the same as clicking Resolve in the Docs UI. It adds a reply that resolves the thread, with optional text. Get the comment ID from drive.getComments. Returns the ID of the resolving reply.',
+      inputSchema: {
+        fileId: z
+          .string()
+          .describe('The ID or URL of the file the comment is on.'),
+        commentId: z
+          .string()
+          .describe('The ID of the comment thread, from drive.getComments.'),
+        content: z
+          .string()
+          .optional()
+          .describe(
+            'Optional text to post with the resolution, such as what was changed.',
+          ),
+      },
+    },
+    driveService.resolveComment,
   );
 
   registerTool(
