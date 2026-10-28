@@ -111,6 +111,7 @@ When a feature group is disabled:
 
 - `docs.getSuggestions`
 - `docs.getText`
+- `docs.getStructure`
 
 ### `docs.write`
 

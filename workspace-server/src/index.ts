@@ -386,6 +386,27 @@ async function main() {
   );
 
   registerTool(
+    'docs.getStructure',
+    {
+      description:
+        'Reads the paragraph structure and formatting of a Google Doc, so you can find the range to format and check the result. For each paragraph, including those in table cells, returns startIndex, endIndex (exclusive), text, namedStyle (NORMAL_TEXT, TITLE, HEADING_1 to HEADING_6), bullet (listId and nestingLevel, starting at 0) if it is a list item, table (row and column, from 0) if it is in a table cell, and styledRuns: the runs with bold, italic, underline, strikethrough or a link set directly on the text. Styles a paragraph gets from its named style, such as bold headings, are not listed. Smart chips and images appear in text as U+FFFC, one index each. Indices include pending suggestions, so they match the indices docs.formatText and docs.addComment take.',
+      inputSchema: {
+        documentId: z
+          .string()
+          .describe('The ID or URL of the document to read.'),
+        tabId: z
+          .string()
+          .optional()
+          .describe(
+            'The ID of the tab to read. If not provided, returns all tabs.',
+          ),
+      },
+      ...readOnlyToolProps,
+    },
+    docsService.getStructure,
+  );
+
+  registerTool(
     'docs.replaceText',
     {
       description:
@@ -417,7 +438,7 @@ async function main() {
     'docs.formatText',
     {
       description:
-        'Applies formatting (bold, italic, headings, etc.) to text ranges in a Google Doc. Use after inserting text to apply rich formatting.',
+        'Applies formatting (bold, italic, headings, bullets, etc.) to text ranges in a Google Doc. Use after inserting text to apply rich formatting. Text inserted after a bulleted paragraph inherits its bullets; use removeBullets on that range to clear them. Use docs.getStructure to find ranges and check the result.',
       inputSchema: {
         documentId: z.string().describe('The ID of the document to format.'),
         formats: z
@@ -434,7 +455,7 @@ async function main() {
               style: z
                 .string()
                 .describe(
-                  'The formatting style to apply. Supported: bold, italic, underline, strikethrough, code, link, heading1, heading2, heading3, heading4, heading5, heading6, normalText.',
+                  'The formatting style to apply. Supported: bold, italic, underline, strikethrough, code, link, heading1, heading2, heading3, heading4, heading5, heading6, normalText, bullets, numberedList, removeBullets. bullets, numberedList and removeBullets apply to every paragraph the range touches; leading tabs in a paragraph set its nesting level.',
                 ),
               url: z
                 .string()
@@ -466,7 +487,7 @@ async function main() {
     'docs.addComment',
     {
       description:
-        'Adds a comment to a Google Doc, anchored to a passage of text. Anchor it with quotedText (an exact passage from the document body) or with startIndex and endIndex. Limits: every comment needs an anchor, so a comment on the whole document is not possible; quotedText is matched exactly (case and whitespace) against the body of one tab only, not headers, footers or footnotes; and it cannot span a smart chip, image or table cell boundary. Use startIndex/endIndex (from docs.getSuggestions or a previous edit) when quotedText cannot match.',
+        'Adds a comment to a Google Doc, anchored to a passage of text. Anchor it with quotedText (an exact passage from the document body) or with startIndex and endIndex. Limits: every comment needs an anchor, so a comment on the whole document is not possible; quotedText is matched exactly (case and whitespace) against the body of one tab only, not headers, footers or footnotes; and it cannot span a smart chip, image or table cell boundary. Use startIndex/endIndex (from docs.getStructure) when quotedText cannot match.',
       inputSchema: {
         documentId: z
           .string()

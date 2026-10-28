@@ -532,6 +532,281 @@ describe('DocsService Comments and Suggestions', () => {
     });
   });
 
+  describe('formatText bullets', () => {
+    it('should add bullets, numbering and remove bullets on a range', async () => {
+      mockDocsAPI.documents.batchUpdate.mockResolvedValue({ data: {} });
+
+      await docsService.formatText({
+        documentId: 'doc-1',
+        formats: [
+          { startIndex: 1, endIndex: 10, style: 'bullets' },
+          { startIndex: 10, endIndex: 20, style: 'numberedList' },
+          { startIndex: 20, endIndex: 30, style: 'removeBullets' },
+        ],
+        tabId: 't.1',
+      });
+
+      const call = mockDocsAPI.documents.batchUpdate.mock.calls[0][0];
+      expect(call.requestBody.requests).toEqual([
+        {
+          createParagraphBullets: {
+            range: { startIndex: 1, endIndex: 10, tabId: 't.1' },
+            bulletPreset: 'BULLET_DISC_CIRCLE_SQUARE',
+          },
+        },
+        {
+          createParagraphBullets: {
+            range: { startIndex: 10, endIndex: 20, tabId: 't.1' },
+            bulletPreset: 'NUMBERED_DECIMAL_ALPHA_ROMAN',
+          },
+        },
+        {
+          deleteParagraphBullets: {
+            range: { startIndex: 20, endIndex: 30, tabId: 't.1' },
+          },
+        },
+      ]);
+    });
+  });
+
+  describe('getStructure', () => {
+    const structuredDoc = {
+      data: {
+        title: 'Plan',
+        tabs: [
+          {
+            tabProperties: { tabId: 't.0', title: 'Tab 1' },
+            documentTab: {
+              body: {
+                content: [
+                  { sectionBreak: {}, startIndex: 0, endIndex: 1 },
+                  {
+                    startIndex: 1,
+                    endIndex: 7,
+                    paragraph: {
+                      paragraphStyle: { namedStyleType: 'HEADING_2' },
+                      elements: [
+                        {
+                          startIndex: 1,
+                          endIndex: 7,
+                          textRun: { content: 'Goals\n', textStyle: {} },
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    startIndex: 7,
+                    endIndex: 20,
+                    paragraph: {
+                      paragraphStyle: { namedStyleType: 'NORMAL_TEXT' },
+                      bullet: { listId: 'kix.list1', nestingLevel: 1 },
+                      elements: [
+                        {
+                          startIndex: 7,
+                          endIndex: 11,
+                          textRun: {
+                            content: 'Ship',
+                            textStyle: { bold: true, italic: true },
+                          },
+                        },
+                        {
+                          startIndex: 11,
+                          endIndex: 12,
+                          person: { personProperties: { name: 'Ana' } },
+                        },
+                        {
+                          startIndex: 12,
+                          endIndex: 16,
+                          textRun: {
+                            content: ' it ',
+                            textStyle: {},
+                          },
+                        },
+                        {
+                          startIndex: 16,
+                          endIndex: 20,
+                          textRun: {
+                            content: 'doc\n',
+                            textStyle: { link: { url: 'https://x.test' } },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    startIndex: 20,
+                    endIndex: 30,
+                    table: {
+                      tableRows: [
+                        {
+                          tableCells: [
+                            { content: [] },
+                            {
+                              content: [
+                                {
+                                  startIndex: 24,
+                                  endIndex: 28,
+                                  paragraph: {
+                                    paragraphStyle: {
+                                      namedStyleType: 'NORMAL_TEXT',
+                                    },
+                                    elements: [
+                                      {
+                                        startIndex: 24,
+                                        endIndex: 28,
+                                        textRun: {
+                                          content: 'Cel\n',
+                                          textStyle: { underline: true },
+                                        },
+                                      },
+                                    ],
+                                  },
+                                },
+                              ],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+          {
+            tabProperties: { tabId: 't.1', title: 'Tab 2' },
+            documentTab: { body: { content: [] } },
+          },
+        ],
+      },
+    };
+
+    it('should return paragraphs with indices, style, bullets, tables and styled runs', async () => {
+      mockDocsAPI.documents.get.mockResolvedValue(structuredDoc);
+
+      const result = await docsService.getStructure({ documentId: 'doc-1' });
+
+      expect(mockDocsAPI.documents.get).toHaveBeenCalledWith(
+        expect.objectContaining({
+          documentId: 'doc-1',
+          includeTabsContent: true,
+          suggestionsViewMode: 'SUGGESTIONS_INLINE',
+        }),
+      );
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.title).toBe('Plan');
+      expect(parsed.tabs).toHaveLength(2);
+      expect(parsed.tabs[0].paragraphs).toEqual([
+        {
+          startIndex: 1,
+          endIndex: 7,
+          text: 'Goals\n',
+          namedStyle: 'HEADING_2',
+        },
+        {
+          startIndex: 7,
+          endIndex: 20,
+          text: 'Ship￼ it doc\n',
+          namedStyle: 'NORMAL_TEXT',
+          bullet: { listId: 'kix.list1', nestingLevel: 1 },
+          styledRuns: [
+            {
+              startIndex: 7,
+              endIndex: 11,
+              text: 'Ship',
+              bold: true,
+              italic: true,
+            },
+            {
+              startIndex: 16,
+              endIndex: 20,
+              text: 'doc\n',
+              link: 'https://x.test',
+            },
+          ],
+        },
+        {
+          startIndex: 24,
+          endIndex: 28,
+          text: 'Cel\n',
+          namedStyle: 'NORMAL_TEXT',
+          table: { tableStartIndex: 20, row: 0, column: 1 },
+          styledRuns: [
+            { startIndex: 24, endIndex: 28, text: 'Cel\n', underline: true },
+          ],
+        },
+      ]);
+    });
+
+    it('should report nesting level 0 for a top-level bullet', async () => {
+      mockDocsAPI.documents.get.mockResolvedValue({
+        data: {
+          tabs: [
+            {
+              tabProperties: { tabId: 't.0' },
+              documentTab: {
+                body: {
+                  content: [
+                    {
+                      startIndex: 1,
+                      endIndex: 4,
+                      paragraph: {
+                        bullet: { listId: 'kix.a' },
+                        elements: [
+                          {
+                            startIndex: 1,
+                            endIndex: 4,
+                            textRun: { content: 'Hi\n' },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      });
+
+      const result = await docsService.getStructure({ documentId: 'doc-1' });
+
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.tabs[0].paragraphs[0].bullet).toEqual({
+        listId: 'kix.a',
+        nestingLevel: 0,
+      });
+    });
+
+    it('should return only the requested tab', async () => {
+      mockDocsAPI.documents.get.mockResolvedValue(structuredDoc);
+
+      const result = await docsService.getStructure({
+        documentId: 'doc-1',
+        tabId: 't.1',
+      });
+
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.tabs).toEqual([
+        { tabId: 't.1', title: 'Tab 2', paragraphs: [] },
+      ]);
+    });
+
+    it('should return an error for an unknown tab', async () => {
+      mockDocsAPI.documents.get.mockResolvedValue(structuredDoc);
+
+      const result = await docsService.getStructure({
+        documentId: 'doc-1',
+        tabId: 'missing',
+      });
+
+      expect(result).toHaveProperty('isError', true);
+      expect(JSON.parse(result.content[0].text).error).toBe(
+        'Tab with ID missing not found.',
+      );
+    });
+  });
+
   describe('addComment', () => {
     const docWithRuns = {
       data: {

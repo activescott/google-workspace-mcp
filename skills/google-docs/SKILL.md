@@ -39,21 +39,36 @@ Then:
 
 ### Supported Formatting Styles
 
-| Style           | Effect                          | API                  |
-| --------------- | ------------------------------- | -------------------- |
-| `bold`          | **Bold text**                   | updateTextStyle      |
-| `italic`        | _Italic text_                   | updateTextStyle      |
-| `underline`     | Underlined text                 | updateTextStyle      |
-| `strikethrough` | ~~Strikethrough text~~          | updateTextStyle      |
-| `code`          | `Monospace font` (Courier New)  | updateTextStyle      |
-| `link`          | Hyperlink (requires `url`)      | updateTextStyle      |
-| `heading1`      | Heading 1                       | updateParagraphStyle |
-| `heading2`      | Heading 2                       | updateParagraphStyle |
-| `heading3`      | Heading 3                       | updateParagraphStyle |
-| `heading4`      | Heading 4                       | updateParagraphStyle |
-| `heading5`      | Heading 5                       | updateParagraphStyle |
-| `heading6`      | Heading 6                       | updateParagraphStyle |
-| `normalText`    | Reset to normal paragraph style | updateParagraphStyle |
+| Style           | Effect                          | API                    |
+| --------------- | ------------------------------- | ---------------------- |
+| `bold`          | **Bold text**                   | updateTextStyle        |
+| `italic`        | _Italic text_                   | updateTextStyle        |
+| `underline`     | Underlined text                 | updateTextStyle        |
+| `strikethrough` | ~~Strikethrough text~~          | updateTextStyle        |
+| `code`          | `Monospace font` (Courier New)  | updateTextStyle        |
+| `link`          | Hyperlink (requires `url`)      | updateTextStyle        |
+| `heading1`      | Heading 1                       | updateParagraphStyle   |
+| `heading2`      | Heading 2                       | updateParagraphStyle   |
+| `heading3`      | Heading 3                       | updateParagraphStyle   |
+| `heading4`      | Heading 4                       | updateParagraphStyle   |
+| `heading5`      | Heading 5                       | updateParagraphStyle   |
+| `heading6`      | Heading 6                       | updateParagraphStyle   |
+| `normalText`    | Reset to normal paragraph style | updateParagraphStyle   |
+| `bullets`       | Bulleted list                   | createParagraphBullets |
+| `numberedList`  | Numbered list                   | createParagraphBullets |
+| `removeBullets` | Remove bullets or numbering     | deleteParagraphBullets |
+
+Text written after a bulleted paragraph inherits its bullets. Apply
+`removeBullets` to that range to clear them.
+
+### Reading Structure and Formatting
+
+Use `docs.getStructure` instead of counting characters by hand. For each
+paragraph it returns `startIndex`, `endIndex`, `text`, `namedStyle` (e.g.
+`HEADING_2`), `bullet` with `nestingLevel` for list items, `table` with row and
+column for text in table cells, and `styledRuns` with bold, italic, underline,
+strikethrough and links. Read it to find a range before `docs.formatText`, and
+again afterwards to check the result.
 
 ### Formatting Example
 

@@ -20,10 +20,12 @@ The extension provides the following tools:
 - `docs.getComments`: Retrieves comments from a Google Doc.
 - `docs.writeText`: Writes text to a Google Doc at a specified position.
 - `docs.getText`: Retrieves the text content of a Google Doc.
+- `docs.getStructure`: Retrieves each paragraph's indices, named style, bullet
+  and nesting level, and bold, italic, underline, strikethrough and link runs.
 - `docs.replaceText`: Replaces all occurrences of a given text with new text in
   a Google Doc.
-- `docs.formatText`: Applies formatting (bold, italic, headings, etc.) to text
-  ranges in a Google Doc.
+- `docs.formatText`: Applies formatting (bold, italic, headings, bullets, etc.)
+  to text ranges in a Google Doc.
 - `docs.addComment`: Adds a comment to a Google Doc, anchored to a quoted
   passage or an index range.
 - `docs.acceptSuggestion`: Accepts a suggested edit by suggestion ID.

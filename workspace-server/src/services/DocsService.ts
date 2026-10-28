@@ -86,6 +86,27 @@ interface DocsBatchUpdateResponse
   commentUpdateState?: string | null;
 }
 
+interface DocsStyledRun {
+  startIndex?: number;
+  endIndex?: number;
+  text: string;
+  bold?: true;
+  italic?: true;
+  underline?: true;
+  strikethrough?: true;
+  link?: string;
+}
+
+interface DocsParagraphStructure {
+  startIndex?: number;
+  endIndex?: number;
+  text: string;
+  namedStyle: string;
+  bullet?: { listId?: string; nestingLevel: number };
+  table?: { tableStartIndex?: number; row: number; column: number };
+  styledRuns?: DocsStyledRun[];
+}
+
 interface IndexedText {
   text: string;
   // indices[i] is the document index of text[i], in UTF-16 code units.
@@ -488,6 +509,11 @@ export class DocsService {
     strikethrough: { strikethrough: true },
   };
 
+  private static readonly BULLET_PRESETS: Record<string, string> = {
+    bullets: 'BULLET_DISC_CIRCLE_SQUARE',
+    numberedlist: 'NUMBERED_DECIMAL_ALPHA_ROMAN',
+  };
+
   public formatText = async ({
     documentId,
     formats,
@@ -542,6 +568,20 @@ export class DocsService {
               fields: Object.keys(textStyle).join(','),
             },
           });
+          continue;
+        }
+
+        const bulletPreset =
+          DocsService.BULLET_PRESETS[format.style.toLowerCase()];
+        if (bulletPreset) {
+          requests.push({
+            createParagraphBullets: { range, bulletPreset },
+          });
+          continue;
+        }
+
+        if (format.style.toLowerCase() === 'removebullets') {
+          requests.push({ deleteParagraphBullets: { range } });
           continue;
         }
 
@@ -782,6 +822,130 @@ export class DocsService {
       });
     }
     return text;
+  }
+
+  public getStructure = async ({
+    documentId,
+    tabId,
+  }: {
+    documentId: string;
+    tabId?: string;
+  }) => {
+    logToFile(
+      `[DocsService] Starting getStructure for document: ${documentId}, tabId: ${tabId}`,
+    );
+    try {
+      const id = validateAndExtractDocId(documentId);
+      const docs = await this.getDocsClient();
+      // Inline suggestions, so the indices match the ones batchUpdate uses.
+      const res = await docs.documents.get({
+        documentId: id,
+        fields: `title,${TABS_FIELD_MASK}`,
+        includeTabsContent: true,
+        suggestionsViewMode: 'SUGGESTIONS_INLINE',
+      });
+
+      let tabs = this._flattenTabs(res.data.tabs || []);
+      if (tabId) {
+        tabs = tabs.filter((t) => t.tabProperties?.tabId === tabId);
+        if (tabs.length === 0) {
+          throw new Error(`Tab with ID ${tabId} not found.`);
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              title: res.data.title,
+              tabs: tabs.map((tab) => ({
+                tabId: tab.tabProperties?.tabId,
+                title: tab.tabProperties?.title,
+                paragraphs: this._paragraphStructure(
+                  tab.documentTab?.body?.content,
+                ),
+              })),
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      return this._errorResult('docs.getStructure', error);
+    }
+  };
+
+  private _paragraphStructure(
+    content: docs_v1.Schema$StructuralElement[] | undefined | null,
+    table?: DocsParagraphStructure['table'],
+    out: DocsParagraphStructure[] = [],
+  ): DocsParagraphStructure[] {
+    content?.forEach((element) => {
+      if (element.paragraph) {
+        const { paragraphStyle, bullet, elements } = element.paragraph;
+        const styledRuns: DocsStyledRun[] = [];
+        let text = '';
+        elements?.forEach((pElement) => {
+          const run = pElement.textRun;
+          if (!run?.content) {
+            text += NON_TEXT_PLACEHOLDER;
+            return;
+          }
+          text += run.content;
+          const style = run.textStyle;
+          const link = style?.link
+            ? (style.link.url ?? 'internal link')
+            : undefined;
+          if (
+            style?.bold ||
+            style?.italic ||
+            style?.underline ||
+            style?.strikethrough ||
+            link
+          ) {
+            styledRuns.push({
+              startIndex: pElement.startIndex ?? undefined,
+              endIndex: pElement.endIndex ?? undefined,
+              text: run.content,
+              ...(style?.bold && { bold: true }),
+              ...(style?.italic && { italic: true }),
+              ...(style?.underline && { underline: true }),
+              ...(style?.strikethrough && { strikethrough: true }),
+              ...(link && { link }),
+            });
+          }
+        });
+        out.push({
+          startIndex: element.startIndex ?? undefined,
+          endIndex: element.endIndex ?? undefined,
+          text,
+          namedStyle: paragraphStyle?.namedStyleType ?? 'NORMAL_TEXT',
+          ...(bullet && {
+            bullet: {
+              listId: bullet.listId ?? undefined,
+              nestingLevel: bullet.nestingLevel ?? 0,
+            },
+          }),
+          ...(table && { table }),
+          ...(styledRuns.length > 0 && { styledRuns }),
+        });
+      } else if (element.table) {
+        element.table.tableRows?.forEach((row, r) => {
+          row.tableCells?.forEach((cell, c) => {
+            this._paragraphStructure(
+              cell.content,
+              {
+                tableStartIndex: element.startIndex ?? undefined,
+                row: r,
+                column: c,
+              },
+              out,
+            );
+          });
+        });
+      }
+    });
+    return out;
   }
 
   private _renderPersonChip(props: docs_v1.Schema$PersonProperties): string {
