@@ -39,21 +39,36 @@ Then:
 
 ### Supported Formatting Styles
 
-| Style           | Effect                          | API                  |
-| --------------- | ------------------------------- | -------------------- |
-| `bold`          | **Bold text**                   | updateTextStyle      |
-| `italic`        | _Italic text_                   | updateTextStyle      |
-| `underline`     | Underlined text                 | updateTextStyle      |
-| `strikethrough` | ~~Strikethrough text~~          | updateTextStyle      |
-| `code`          | `Monospace font` (Courier New)  | updateTextStyle      |
-| `link`          | Hyperlink (requires `url`)      | updateTextStyle      |
-| `heading1`      | Heading 1                       | updateParagraphStyle |
-| `heading2`      | Heading 2                       | updateParagraphStyle |
-| `heading3`      | Heading 3                       | updateParagraphStyle |
-| `heading4`      | Heading 4                       | updateParagraphStyle |
-| `heading5`      | Heading 5                       | updateParagraphStyle |
-| `heading6`      | Heading 6                       | updateParagraphStyle |
-| `normalText`    | Reset to normal paragraph style | updateParagraphStyle |
+| Style           | Effect                          | API                    |
+| --------------- | ------------------------------- | ---------------------- |
+| `bold`          | **Bold text**                   | updateTextStyle        |
+| `italic`        | _Italic text_                   | updateTextStyle        |
+| `underline`     | Underlined text                 | updateTextStyle        |
+| `strikethrough` | ~~Strikethrough text~~          | updateTextStyle        |
+| `code`          | `Monospace font` (Courier New)  | updateTextStyle        |
+| `link`          | Hyperlink (requires `url`)      | updateTextStyle        |
+| `heading1`      | Heading 1                       | updateParagraphStyle   |
+| `heading2`      | Heading 2                       | updateParagraphStyle   |
+| `heading3`      | Heading 3                       | updateParagraphStyle   |
+| `heading4`      | Heading 4                       | updateParagraphStyle   |
+| `heading5`      | Heading 5                       | updateParagraphStyle   |
+| `heading6`      | Heading 6                       | updateParagraphStyle   |
+| `normalText`    | Reset to normal paragraph style | updateParagraphStyle   |
+| `bullets`       | Bulleted list                   | createParagraphBullets |
+| `numberedList`  | Numbered list                   | createParagraphBullets |
+| `removeBullets` | Remove bullets or numbering     | deleteParagraphBullets |
+
+Text written after a bulleted paragraph inherits its bullets. Apply
+`removeBullets` to that range to clear them.
+
+### Reading Structure and Formatting
+
+Use `docs.getStructure` instead of counting characters by hand. For each
+paragraph it returns `startIndex`, `endIndex`, `text`, `namedStyle` (e.g.
+`HEADING_2`), `bullet` with `nestingLevel` for list items, `table` with row and
+column for text in table cells, and `styledRuns` with bold, italic, underline,
+strikethrough and links. Read it to find a range before `docs.formatText`, and
+again afterwards to check the result.
 
 ### Formatting Example
 
@@ -246,6 +261,63 @@ Use `drive.getComments` to retrieve all comments on a document:
 ```
 drive.getComments({ fileId: "doc-id" })
 ```
+
+### Adding Comments
+
+Use `docs.addComment` to comment on a passage. Pass `quotedText`, an exact
+passage from the document body, and the comment is anchored to it. Use
+`occurrence` to pick a later match.
+
+```
+docs.addComment({
+  documentId: "doc-id",
+  content: "Which date does this refer to?",
+  quotedText: "ships the beta"
+})
+```
+
+Every comment needs an anchor; a comment on the whole document isn't possible.
+`quotedText` is matched exactly against one tab's body (not headers, footers or
+footnotes) and can't span a smart chip, image or table cell boundary. If it
+can't match, pass `startIndex` and `endIndex` instead.
+
+### Replying to and Resolving Comments
+
+Use `drive.replyToComment` to answer a comment thread, and
+`drive.resolveComment` to resolve one, optionally with a closing note. Both take
+the comment `id` from `drive.getComments`.
+
+```
+drive.replyToComment({
+  fileId: "doc-id",
+  commentId: "comment-id",
+  content: "Fixed in the second paragraph."
+})
+
+drive.resolveComment({ fileId: "doc-id", commentId: "comment-id" })
+```
+
+### Suggesting Edits
+
+`docs.writeText`, `docs.replaceText` and `docs.formatText` take `suggest: true`.
+The edit then appears as a suggestion the document owner can accept or reject,
+and the result lists the new suggestion IDs. Use this when editing someone
+else's document.
+
+```
+docs.replaceText({
+  documentId: "doc-id",
+  findText: "Q3",
+  replaceText: "Q4",
+  suggest: true
+})
+```
+
+### Accepting and Rejecting Suggestions
+
+Use `docs.acceptSuggestion` or `docs.rejectSuggestion` with a suggestion ID from
+`docs.getSuggestions`. Accepting needs edit access; rejecting needs edit access
+or authorship of the suggestion.
 
 ### Reading Suggestions
 

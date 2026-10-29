@@ -76,6 +76,9 @@ describe('DriveService', () => {
       comments: {
         list: jest.fn(),
       },
+      replies: {
+        create: jest.fn(),
+      },
     };
 
     // Mock the google.drive constructor
@@ -1437,6 +1440,155 @@ describe('DriveService', () => {
           fields: expect.stringContaining('action'),
         }),
       );
+    });
+
+    it('should read every page of comments', async () => {
+      mockDriveAPI.comments.list
+        .mockResolvedValueOnce({
+          data: {
+            comments: [{ id: 'comment1', quotedFileContent: { value: 'a' } }],
+            nextPageToken: 'page2',
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            comments: [{ id: 'comment2', quotedFileContent: { value: 'b' } }],
+          },
+        });
+
+      const result = await driveService.getComments({
+        fileId: 'test-doc-id',
+      });
+
+      const comments = JSON.parse(result.content[0].text);
+      expect(comments.map((c: { id: string }) => c.id)).toEqual([
+        'comment1',
+        'comment2',
+      ]);
+      expect(mockDriveAPI.comments.list).toHaveBeenCalledTimes(2);
+      expect(mockDriveAPI.comments.list).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ pageSize: 100, pageToken: undefined }),
+      );
+      expect(mockDriveAPI.comments.list).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ pageToken: 'page2' }),
+      );
+    });
+
+    it('should request quoted anchor text and nextPageToken', async () => {
+      mockDriveAPI.comments.list.mockResolvedValue({
+        data: { comments: [] },
+      });
+
+      await driveService.getComments({ fileId: 'test-doc-id' });
+
+      const { fields } = mockDriveAPI.comments.list.mock.calls[0][0];
+      expect(fields).toContain('quotedFileContent(value)');
+      expect(fields).toContain('nextPageToken');
+    });
+  });
+
+  describe('replyToComment', () => {
+    it('should create a reply on the comment thread', async () => {
+      mockDriveAPI.replies.create.mockResolvedValue({
+        data: {
+          id: 'reply1',
+          content: 'Done.',
+          createdTime: '2026-10-28T00:00:00Z',
+        },
+      });
+
+      const result = await driveService.replyToComment({
+        fileId: 'https://docs.google.com/document/d/test-doc-id/edit',
+        commentId: 'comment1',
+        content: 'Done.',
+      });
+
+      expect(mockDriveAPI.replies.create).toHaveBeenCalledWith({
+        fileId: 'test-doc-id',
+        commentId: 'comment1',
+        fields: 'id, content, createdTime, action',
+        requestBody: { content: 'Done.' },
+      });
+      expect(JSON.parse(result.content[0].text)).toEqual({
+        fileId: 'test-doc-id',
+        commentId: 'comment1',
+        replyId: 'reply1',
+        content: 'Done.',
+        createdTime: '2026-10-28T00:00:00Z',
+      });
+    });
+
+    it('should handle API errors gracefully', async () => {
+      mockDriveAPI.replies.create.mockRejectedValue(
+        new Error('Comment not found'),
+      );
+
+      const result = await driveService.replyToComment({
+        fileId: 'test-doc-id',
+        commentId: 'missing',
+        content: 'Done.',
+      });
+
+      expect('isError' in result && result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text)).toEqual({
+        error: 'Comment not found',
+      });
+    });
+  });
+
+  describe('resolveComment', () => {
+    it('should resolve the thread with an empty reply', async () => {
+      mockDriveAPI.replies.create.mockResolvedValue({
+        data: { id: 'reply2', action: 'resolve' },
+      });
+
+      const result = await driveService.resolveComment({
+        fileId: 'test-doc-id',
+        commentId: 'comment1',
+      });
+
+      expect(mockDriveAPI.replies.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          commentId: 'comment1',
+          requestBody: { action: 'resolve' },
+        }),
+      );
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.replyId).toBe('reply2');
+      expect(parsed.resolved).toBe(true);
+    });
+
+    it('should post the optional text with the resolution', async () => {
+      mockDriveAPI.replies.create.mockResolvedValue({
+        data: { id: 'reply3', content: 'Fixed the typo.', action: 'resolve' },
+      });
+
+      await driveService.resolveComment({
+        fileId: 'test-doc-id',
+        commentId: 'comment1',
+        content: 'Fixed the typo.',
+      });
+
+      expect(mockDriveAPI.replies.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestBody: { action: 'resolve', content: 'Fixed the typo.' },
+        }),
+      );
+    });
+
+    it('should handle API errors gracefully', async () => {
+      mockDriveAPI.replies.create.mockRejectedValue(
+        new Error('Insufficient permissions'),
+      );
+
+      const result = await driveService.resolveComment({
+        fileId: 'test-doc-id',
+        commentId: 'comment1',
+      });
+
+      expect('isError' in result && result.isError).toBe(true);
     });
   });
 });

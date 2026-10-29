@@ -20,10 +20,19 @@ The extension provides the following tools:
 - `docs.getComments`: Retrieves comments from a Google Doc.
 - `docs.writeText`: Writes text to a Google Doc at a specified position.
 - `docs.getText`: Retrieves the text content of a Google Doc.
+- `docs.getStructure`: Retrieves each paragraph's indices, named style, bullet
+  and nesting level, and bold, italic, underline, strikethrough and link runs.
 - `docs.replaceText`: Replaces all occurrences of a given text with new text in
   a Google Doc.
-- `docs.formatText`: Applies formatting (bold, italic, headings, etc.) to text
-  ranges in a Google Doc.
+- `docs.formatText`: Applies formatting (bold, italic, headings, bullets, etc.)
+  to text ranges in a Google Doc.
+- `docs.addComment`: Adds a comment to a Google Doc, anchored to a quoted
+  passage or an index range.
+- `docs.acceptSuggestion`: Accepts a suggested edit by suggestion ID.
+- `docs.rejectSuggestion`: Rejects a suggested edit by suggestion ID.
+
+`docs.writeText`, `docs.replaceText` and `docs.formatText` take `suggest: true`
+to write the edit as a suggestion instead of editing directly.
 
 ### Google Slides
 
@@ -49,6 +58,10 @@ The extension provides the following tools:
 - `drive.downloadFile`: Downloads a file from Google Drive to a local path.
 - `drive.trashFile`: Moves a file or folder to the trash in Google Drive.
 - `drive.renameFile`: Renames a file or folder in Google Drive.
+- `drive.getComments`: Retrieves every comment on a file, with the quoted text
+  each is anchored to and its replies.
+- `drive.replyToComment`: Replies to an existing comment thread.
+- `drive.resolveComment`: Resolves a comment thread, with an optional reply.
 
 ### Google Calendar
 
