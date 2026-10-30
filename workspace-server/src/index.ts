@@ -46,6 +46,7 @@ import { gmailAttachmentSchema } from './utils/validation';
 
 import { setLoggingEnabled, logToFile } from './utils/logger';
 import { applyToolNameNormalization } from './utils/tool-normalization';
+import { applyToolErrorResults } from './utils/tool-errors';
 import { SCOPES } from './auth/scopes';
 import { resolveFeatures } from './features/index';
 
@@ -229,6 +230,7 @@ async function main() {
   const useDotNames = process.argv.includes('--use-dot-names');
   const separator = useDotNames ? '.' : '_';
   applyToolNameNormalization(server, useDotNames);
+  applyToolErrorResults(server);
 
   // Wrap registerTool to skip tools disabled by feature config.
   // Auth tools are always registered (not gated by features).
