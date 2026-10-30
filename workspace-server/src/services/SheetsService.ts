@@ -952,9 +952,9 @@ export class SheetsService {
         const grid = this.toGridRange(sheetId, range);
         const dimensionIndex = this.columnToIndex(sortColumn);
         if (
-          (grid.startColumnIndex !== undefined &&
+          (grid.startColumnIndex != null &&
             dimensionIndex < grid.startColumnIndex) ||
-          (grid.endColumnIndex !== undefined &&
+          (grid.endColumnIndex != null &&
             dimensionIndex >= grid.endColumnIndex)
         ) {
           throw new Error(
