@@ -94,13 +94,18 @@ module.exports = [
           source: 'string',
           content: [
             '@license',
-            'Copyright (year) Google LLC',
+            'Copyright (year) (owner)',
             'SPDX-License-Identifier: Apache-2.0',
           ].join('\n'),
           patterns: {
             year: {
               pattern: '202[5-6]',
               defaultValue: '2026',
+            },
+            // Upstream files keep Google's notice; files this fork added use Scott Willeke's.
+            owner: {
+              pattern: 'Google LLC|Scott Willeke',
+              defaultValue: 'Google LLC',
             },
           },
         },

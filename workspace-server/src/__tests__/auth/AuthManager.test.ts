@@ -45,6 +45,7 @@ describe('AuthManager', () => {
   it('should set up tokens event listener on client creation', async () => {
     (OAuthCredentialStorage.loadCredentials as jest.Mock).mockResolvedValue({
       access_token: 'old_token',
+      expiry_date: Date.now() + 60 * 60 * 1000,
       refresh_token: 'old_refresh',
       scope: 'scope1',
     });
@@ -61,6 +62,7 @@ describe('AuthManager', () => {
   it('should save credentials when tokens event is emitted', async () => {
     (OAuthCredentialStorage.loadCredentials as jest.Mock).mockResolvedValue({
       access_token: 'old_token',
+      expiry_date: Date.now() + 60 * 60 * 1000,
       refresh_token: 'old_refresh',
       scope: 'scope1',
     });
@@ -95,6 +97,7 @@ describe('AuthManager', () => {
     // Setup initial state with a refresh token
     (OAuthCredentialStorage.loadCredentials as jest.Mock).mockResolvedValue({
       access_token: 'old_token',
+      expiry_date: Date.now() + 60 * 60 * 1000,
       refresh_token: 'old_refresh_token',
       scope: 'scope1',
     });
@@ -126,6 +129,7 @@ describe('AuthManager', () => {
     // Setup initial state with a refresh token
     (OAuthCredentialStorage.loadCredentials as jest.Mock).mockResolvedValue({
       access_token: 'old_token',
+      expiry_date: Date.now() + 60 * 60 * 1000,
       refresh_token: 'old_refresh_token',
       scope: 'scope1',
     });
@@ -158,6 +162,7 @@ describe('AuthManager', () => {
     // Setup initial state with a refresh token in storage
     (OAuthCredentialStorage.loadCredentials as jest.Mock).mockResolvedValue({
       access_token: 'old_token',
+      expiry_date: Date.now() + 60 * 60 * 1000,
       refresh_token: 'stored_refresh_token',
       scope: 'scope1',
     });

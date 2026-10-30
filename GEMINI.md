@@ -27,3 +27,9 @@ To add a new tool, you need to:
 2.  In `src/index.ts`, register the new tool with the MCP server by calling
     `server.registerTool()`. You will need to provide a name for the tool, a
     description, and the input schema using the `zod` library.
+
+### Copyright Headers
+
+New files in this fork use `Copyright <year> Scott Willeke` with
+`SPDX-License-Identifier: Apache-2.0`. Files inherited from upstream keep
+Google's `Copyright <year> Google LLC` notice, even when we modify them.

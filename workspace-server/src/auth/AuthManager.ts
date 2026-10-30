@@ -25,6 +25,34 @@ const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000; // 5 minutes
 const MS_PER_SECOND = 1000;
 
 /**
+ * Describes a failed token refresh response by its HTTP status and the OAuth
+ * `error` and `error_description` fields, e.g. `400 invalid_request: client_secret
+ * is missing.` Only those two fields are read, so no token value in the body can
+ * reach the log.
+ */
+export async function refreshFailure(response: Response): Promise<string> {
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    body = undefined;
+  }
+  const field = (name: string): string | undefined => {
+    const value =
+      body && typeof body === 'object'
+        ? (body as Record<string, unknown>)[name]
+        : undefined;
+    return typeof value === 'string' && value ? value : undefined;
+  };
+  const error = field('error');
+  const description = field('error_description');
+  if (!error) return `${response.status}`;
+  return description
+    ? `${response.status} ${error}: ${description}`
+    : `${response.status} ${error}`;
+}
+
+/**
  * An Authentication URL for updating the credentials of a Oauth2Client
  * as well as a promise that will resolve when the credentials have
  * been refreshed (or which throws error when refreshing credentials failed).
@@ -47,9 +75,14 @@ export class AuthManager {
     this.onStatusUpdate = callback;
   }
 
+  // A credential with no access token or no expiry_date counts as expired, so
+  // it is refreshed here, through the refresh URL or cloud function when one is
+  // configured. Otherwise the Google client library would refresh it itself,
+  // directly against Google, which fails without the client secret.
   private isTokenExpiringSoon(credentials: Auth.Credentials): boolean {
-    return !!(
-      credentials.expiry_date &&
+    return (
+      !credentials.access_token ||
+      !credentials.expiry_date ||
       credentials.expiry_date < Date.now() + TOKEN_EXPIRY_BUFFER_MS
     );
   }
@@ -127,6 +160,9 @@ export class AuthManager {
           // Clear the client and fall through to re-authenticate
           this.client = null;
           await OAuthCredentialStorage.clearCredentials();
+          // Injected credentials never re-authenticate here, so the refresh
+          // error, which may say what to do, is the one the tool reports
+          if (CREDENTIALS_PATH) throw error;
         }
       }
 
@@ -181,6 +217,9 @@ export class AuthManager {
           // Clear the client and fall through to re-authenticate
           this.client = null;
           await OAuthCredentialStorage.clearCredentials();
+          // Injected credentials never re-authenticate here, so the refresh
+          // error, which may say what to do, is the one the tool reports
+          if (CREDENTIALS_PATH) throw error;
         }
       }
 
@@ -279,9 +318,8 @@ export class AuthManager {
         });
 
         if (!response.ok) {
-          const errorText = await response.text();
           throw new Error(
-            `Direct Google token refresh failed: ${response.status} ${errorText}`,
+            `Direct Google token refresh failed: ${await refreshFailure(response)}`,
           );
         }
 
@@ -312,9 +350,8 @@ export class AuthManager {
         });
 
         if (!response.ok) {
-          const errorText = await response.text();
           throw new Error(
-            `Token refresh failed: ${response.status} ${errorText}`,
+            `Token refresh failed: ${await refreshFailure(response)}`,
           );
         }
 
