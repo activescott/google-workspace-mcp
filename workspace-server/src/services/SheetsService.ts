@@ -954,8 +954,7 @@ export class SheetsService {
         if (
           (grid.startColumnIndex != null &&
             dimensionIndex < grid.startColumnIndex) ||
-          (grid.endColumnIndex != null &&
-            dimensionIndex >= grid.endColumnIndex)
+          (grid.endColumnIndex != null && dimensionIndex >= grid.endColumnIndex)
         ) {
           throw new Error(
             `sortColumn ${sortColumn} is outside the range ${range}.`,
