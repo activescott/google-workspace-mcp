@@ -1273,6 +1273,185 @@ async function main() {
     sheetsService.updateSheetProperties,
   );
 
+  const rangeSchema = z
+    .string()
+    .describe(
+      'A1 range without the sheet name, e.g. "A1:C10", "A:B" (whole columns) or "2:5" (whole rows).',
+    );
+  const dimensionSchema = z
+    .enum(['ROWS', 'COLUMNS'])
+    .describe('Whether to act on rows or columns.');
+  const countSchema = z.number().int().min(1).describe('How many to act on.');
+
+  registerTool(
+    'sheets.createSpreadsheet',
+    {
+      description:
+        'Creates a new Google Sheets spreadsheet. Returns its spreadsheetId, URL and tabs.',
+      inputSchema: {
+        title: z.string().min(1).describe('The title of the spreadsheet.'),
+        sheetTitles: z
+          .array(z.string().min(1))
+          .optional()
+          .describe('Titles of the tabs to create (default: one "Sheet1").'),
+      },
+    },
+    sheetsService.createSpreadsheet,
+  );
+
+  registerTool(
+    'sheets.duplicateSheet',
+    {
+      description:
+        'Duplicates a tab, with its data and formatting, within the same spreadsheet. Returns the new sheetId.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        newTitle: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Title of the copy (default: "Copy of <title>").'),
+        index: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('Zero-based position of the copy (default: the end).'),
+      },
+    },
+    sheetsService.duplicateSheet,
+  );
+
+  registerTool(
+    'sheets.clearRange',
+    {
+      description:
+        'Clears the values in a range of a Google Sheets spreadsheet. Formatting is kept.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        range: z
+          .string()
+          .describe('A1 range including the tab name, e.g. "Sheet1!A2:D100".'),
+      },
+    },
+    sheetsService.clearRange,
+  );
+
+  registerTool(
+    'sheets.formatRange',
+    {
+      description:
+        'Applies bold and/or a number format to a range. Only the properties you pass are changed.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        range: rangeSchema,
+        bold: z.boolean().optional().describe('Make the text bold or not.'),
+        numberFormat: z
+          .object({
+            type: z
+              .enum([
+                'TEXT',
+                'NUMBER',
+                'PERCENT',
+                'CURRENCY',
+                'DATE',
+                'TIME',
+                'DATE_TIME',
+                'SCIENTIFIC',
+              ])
+              .describe('The kind of format.'),
+            pattern: z
+              .string()
+              .optional()
+              .describe('Optional pattern, e.g. "$#,##0.00" or "yyyy-mm-dd".'),
+          })
+          .optional()
+          .describe('Number format to apply.'),
+      },
+    },
+    sheetsService.formatRange,
+  );
+
+  registerTool(
+    'sheets.setColumnWidth',
+    {
+      description: 'Sets the width, in pixels, of one or more columns.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        columns: z
+          .string()
+          .describe('A column letter or range, e.g. "B" or "A:C".'),
+        pixelSize: z.number().int().min(1).describe('Width in pixels.'),
+      },
+    },
+    sheetsService.setColumnWidth,
+  );
+
+  registerTool(
+    'sheets.insertDimension',
+    {
+      description:
+        'Inserts blank rows or columns. Existing ones from startIndex move down or right.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        dimension: dimensionSchema,
+        startIndex: z
+          .number()
+          .int()
+          .min(0)
+          .describe('Zero-based index to insert at (row 1 / column A is 0).'),
+        count: countSchema,
+      },
+    },
+    sheetsService.insertDimension,
+  );
+
+  registerTool(
+    'sheets.deleteDimension',
+    {
+      description:
+        'Deletes rows or columns, and the data in them. Later ones move up or left.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        dimension: dimensionSchema,
+        startIndex: z
+          .number()
+          .int()
+          .min(0)
+          .describe(
+            'Zero-based index of the first to delete (row 1 / column A is 0).',
+          ),
+        count: countSchema,
+      },
+    },
+    sheetsService.deleteDimension,
+  );
+
+  registerTool(
+    'sheets.sortRange',
+    {
+      description:
+        'Sorts the rows of a range by one column. Leave the header row out of the range.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        range: rangeSchema,
+        sortColumn: z
+          .string()
+          .describe(
+            'Letter of the column to sort by; must be inside the range.',
+          ),
+        descending: z.boolean().optional().describe('Sort Z–A (default: A–Z).'),
+      },
+    },
+    sheetsService.sortRange,
+  );
+
   registerTool(
     'drive.search',
     {

@@ -38,11 +38,13 @@ describe('SheetsService', () => {
     mockSheetsAPI = {
       spreadsheets: {
         get: jest.fn(),
+        create: jest.fn(),
         batchUpdate: jest.fn(),
         values: {
           get: jest.fn(),
           update: jest.fn(),
           append: jest.fn(),
+          clear: jest.fn(),
         },
       },
     };
@@ -735,6 +737,273 @@ describe('SheetsService', () => {
         );
         expect(mockSheetsAPI.spreadsheets.batchUpdate).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  describe('structure and formatting tools', () => {
+    const body = (r: { content: { text: string }[] }) =>
+      JSON.parse(r.content[0].text);
+    const lastRequest = () =>
+      mockSheetsAPI.spreadsheets.batchUpdate.mock.calls[0][0].requestBody
+        .requests[0];
+
+    beforeEach(() => {
+      mockSheetsAPI.spreadsheets.get.mockResolvedValue({
+        data: {
+          sheets: [
+            { properties: { sheetId: 0, title: 'Sheet1' } },
+            { properties: { sheetId: 42, title: 'Vendors' } },
+          ],
+        },
+      });
+      mockSheetsAPI.spreadsheets.batchUpdate.mockResolvedValue({ data: {} });
+    });
+
+    it('createSpreadsheet creates named tabs and returns ids', async () => {
+      mockSheetsAPI.spreadsheets.create.mockResolvedValue({
+        data: {
+          spreadsheetId: 'new-id',
+          spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/new-id',
+          sheets: [{ properties: { sheetId: 0, title: 'Q1' } }],
+        },
+      });
+      const result = await sheetsService.createSpreadsheet({
+        title: 'Budget',
+        sheetTitles: ['Q1'],
+      });
+      expect(
+        mockSheetsAPI.spreadsheets.create.mock.calls[0][0].requestBody,
+      ).toEqual({
+        properties: { title: 'Budget' },
+        sheets: [{ properties: { title: 'Q1' } }],
+      });
+      expect(body(result)).toEqual({
+        spreadsheetId: 'new-id',
+        url: 'https://docs.google.com/spreadsheets/d/new-id',
+        sheets: [{ sheetId: 0, title: 'Q1' }],
+      });
+    });
+
+    it('createSpreadsheet rejects duplicate tab titles', async () => {
+      const result = await sheetsService.createSpreadsheet({
+        title: 'Budget',
+        sheetTitles: ['A', 'a'],
+      });
+      expect(body(result).error).toContain('unique');
+      expect(mockSheetsAPI.spreadsheets.create).not.toHaveBeenCalled();
+    });
+
+    it('duplicateSheet sends the source, title and index', async () => {
+      mockSheetsAPI.spreadsheets.batchUpdate.mockResolvedValue({
+        data: {
+          replies: [
+            {
+              duplicateSheet: {
+                properties: { sheetId: 9, title: 'V2', index: 1 },
+              },
+            },
+          ],
+        },
+      });
+      const result = await sheetsService.duplicateSheet({
+        spreadsheetId: 'test-id',
+        sheetId: 42,
+        newTitle: 'V2',
+        index: 1,
+      });
+      expect(lastRequest()).toEqual({
+        duplicateSheet: {
+          sourceSheetId: 42,
+          newSheetName: 'V2',
+          insertSheetIndex: 1,
+        },
+      });
+      expect(body(result)).toEqual({ sheetId: 9, title: 'V2', index: 1 });
+    });
+
+    it('duplicateSheet rejects a title that is already taken', async () => {
+      const result = await sheetsService.duplicateSheet({
+        spreadsheetId: 'test-id',
+        sheetId: 42,
+        newTitle: 'sheet1',
+      });
+      expect(body(result).error).toContain('already exists');
+      expect(mockSheetsAPI.spreadsheets.batchUpdate).not.toHaveBeenCalled();
+    });
+
+    it('clearRange clears values only', async () => {
+      mockSheetsAPI.spreadsheets.values.clear.mockResolvedValue({
+        data: { clearedRange: 'Sheet1!A2:D100' },
+      });
+      const result = await sheetsService.clearRange({
+        spreadsheetId: 'test-id',
+        range: 'Sheet1!A2:D100',
+      });
+      expect(mockSheetsAPI.spreadsheets.values.clear).toHaveBeenCalledWith({
+        spreadsheetId: 'test-id',
+        range: 'Sheet1!A2:D100',
+      });
+      expect(body(result)).toEqual({ clearedRange: 'Sheet1!A2:D100' });
+    });
+
+    it('formatRange bolds a header row with a field mask', async () => {
+      await sheetsService.formatRange({
+        spreadsheetId: 'test-id',
+        sheetId: 42,
+        range: '1:1',
+        bold: true,
+      });
+      expect(lastRequest()).toEqual({
+        repeatCell: {
+          range: { sheetId: 42, startRowIndex: 0, endRowIndex: 1 },
+          cell: { userEnteredFormat: { textFormat: { bold: true } } },
+          fields: 'userEnteredFormat.textFormat.bold',
+        },
+      });
+    });
+
+    it('formatRange applies a currency format to A1 columns', async () => {
+      await sheetsService.formatRange({
+        spreadsheetId: 'test-id',
+        sheetId: 0,
+        range: 'C2:D10',
+        numberFormat: { type: 'CURRENCY', pattern: '$#,##0.00' },
+      });
+      expect(lastRequest().repeatCell).toEqual({
+        range: {
+          sheetId: 0,
+          startRowIndex: 1,
+          endRowIndex: 10,
+          startColumnIndex: 2,
+          endColumnIndex: 4,
+        },
+        cell: {
+          userEnteredFormat: {
+            numberFormat: { type: 'CURRENCY', pattern: '$#,##0.00' },
+          },
+        },
+        fields: 'userEnteredFormat.numberFormat',
+      });
+    });
+
+    it('formatRange rejects bad ranges and empty formats', async () => {
+      const bad = await sheetsService.formatRange({
+        spreadsheetId: 'test-id',
+        sheetId: 0,
+        range: 'Sheet1!A1',
+        bold: true,
+      });
+      expect(body(bad).error).toContain('Invalid range');
+      const empty = await sheetsService.formatRange({
+        spreadsheetId: 'test-id',
+        sheetId: 0,
+        range: 'A1',
+      });
+      expect(body(empty).error).toContain('Nothing to format');
+      expect(mockSheetsAPI.spreadsheets.batchUpdate).not.toHaveBeenCalled();
+    });
+
+    it('setColumnWidth converts letters to a dimension range', async () => {
+      await sheetsService.setColumnWidth({
+        spreadsheetId: 'test-id',
+        sheetId: 0,
+        columns: 'A:C',
+        pixelSize: 180,
+      });
+      expect(lastRequest()).toEqual({
+        updateDimensionProperties: {
+          range: {
+            sheetId: 0,
+            dimension: 'COLUMNS',
+            startIndex: 0,
+            endIndex: 3,
+          },
+          properties: { pixelSize: 180 },
+          fields: 'pixelSize',
+        },
+      });
+    });
+
+    it('insertDimension inserts rows, inheriting from the row before', async () => {
+      await sheetsService.insertDimension({
+        spreadsheetId: 'test-id',
+        sheetId: 0,
+        dimension: 'ROWS',
+        startIndex: 2,
+        count: 3,
+      });
+      expect(lastRequest()).toEqual({
+        insertDimension: {
+          range: { sheetId: 0, dimension: 'ROWS', startIndex: 2, endIndex: 5 },
+          inheritFromBefore: true,
+        },
+      });
+    });
+
+    it('deleteDimension deletes columns', async () => {
+      const result = await sheetsService.deleteDimension({
+        spreadsheetId: 'test-id',
+        sheetId: 0,
+        dimension: 'COLUMNS',
+        startIndex: 1,
+        count: 2,
+      });
+      expect(lastRequest()).toEqual({
+        deleteDimension: {
+          range: {
+            sheetId: 0,
+            dimension: 'COLUMNS',
+            startIndex: 1,
+            endIndex: 3,
+          },
+        },
+      });
+      expect(body(result).deleted).toBe(2);
+    });
+
+    it('deleteDimension reports an unknown sheetId without calling the API', async () => {
+      const result = await sheetsService.deleteDimension({
+        spreadsheetId: 'test-id',
+        sheetId: 99,
+        dimension: 'ROWS',
+        startIndex: 0,
+        count: 1,
+      });
+      expect(body(result).error).toContain('No sheet with sheetId 99');
+      expect(mockSheetsAPI.spreadsheets.batchUpdate).not.toHaveBeenCalled();
+    });
+
+    it('sortRange sorts by an absolute column index', async () => {
+      await sheetsService.sortRange({
+        spreadsheetId: 'test-id',
+        sheetId: 0,
+        range: 'A2:D50',
+        sortColumn: 'C',
+        descending: true,
+      });
+      expect(lastRequest()).toEqual({
+        sortRange: {
+          range: {
+            sheetId: 0,
+            startRowIndex: 1,
+            endRowIndex: 50,
+            startColumnIndex: 0,
+            endColumnIndex: 4,
+          },
+          sortSpecs: [{ dimensionIndex: 2, sortOrder: 'DESCENDING' }],
+        },
+      });
+    });
+
+    it('sortRange rejects a sort column outside the range', async () => {
+      const result = await sheetsService.sortRange({
+        spreadsheetId: 'test-id',
+        sheetId: 0,
+        range: 'A2:D50',
+        sortColumn: 'F',
+      });
+      expect(body(result).error).toContain('outside the range');
+      expect(mockSheetsAPI.spreadsheets.batchUpdate).not.toHaveBeenCalled();
     });
   });
 });

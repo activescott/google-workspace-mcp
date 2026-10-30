@@ -62,6 +62,14 @@ to write the edit as a suggestion instead of editing directly.
 - `sheets.renameSheet`: Renames a tab in a Google Sheets spreadsheet.
 - `sheets.updateSheetProperties`: Changes a tab's position, frozen rows and
   columns, hidden state or color.
+- `sheets.createSpreadsheet`: Creates a new Google Sheets spreadsheet.
+- `sheets.duplicateSheet`: Duplicates a tab within a spreadsheet.
+- `sheets.clearRange`: Clears the values in a range, keeping formatting.
+- `sheets.formatRange`: Applies bold and/or a number format to a range.
+- `sheets.setColumnWidth`: Sets the pixel width of columns.
+- `sheets.insertDimension`: Inserts blank rows or columns.
+- `sheets.deleteDimension`: Deletes rows or columns.
+- `sheets.sortRange`: Sorts a range by one column.
 
 ### Google Drive
 

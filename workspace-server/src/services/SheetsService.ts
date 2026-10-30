@@ -628,4 +628,351 @@ export class SheetsService {
       return this.errorResult('sheets.updateSheetProperties', error);
     }
   };
+
+  private columnToIndex(letters: string): number {
+    let n = 0;
+    for (const ch of letters.toUpperCase()) n = n * 26 + ch.charCodeAt(0) - 64;
+    return n - 1;
+  }
+
+  /**
+   * Converts an A1 range without a sheet name ("A1:C10", "A:B", "2:5", "D4")
+   * into a zero-based, end-exclusive GridRange. Omitted bounds stay unset,
+   * which the API treats as unbounded.
+   */
+  private toGridRange(
+    sheetId: number,
+    range: string,
+  ): sheets_v4.Schema$GridRange {
+    const cell = /^([A-Za-z]{1,3})?(\d+)?$/;
+    const parts = range.trim().split(':');
+    const parsed = parts.map((p) => cell.exec(p));
+    if (parts.length > 2 || parsed.some((m) => !m || (!m[1] && !m[2]))) {
+      throw new Error(
+        `Invalid range "${range}": expected A1 notation without a sheet name, e.g. "A1:C10", "A:B" or "2:5".`,
+      );
+    }
+    const [start, end = start] = parsed as RegExpExecArray[];
+    const grid: sheets_v4.Schema$GridRange = { sheetId };
+    if (start[1]) grid.startColumnIndex = this.columnToIndex(start[1]);
+    if (end[1]) grid.endColumnIndex = this.columnToIndex(end[1]) + 1;
+    if (start[2]) grid.startRowIndex = parseInt(start[2], 10) - 1;
+    if (end[2]) grid.endRowIndex = parseInt(end[2], 10);
+    return grid;
+  }
+
+  private async runBatch(
+    tool: string,
+    spreadsheetId: string,
+    sheetId: number,
+    build: (
+      tabs: sheets_v4.Schema$SheetProperties[],
+    ) => sheets_v4.Schema$Request,
+    result: (data: sheets_v4.Schema$BatchUpdateSpreadsheetResponse) => unknown,
+  ) {
+    logToFile(
+      `[SheetsService] Starting ${tool} for spreadsheet: ${spreadsheetId}, sheetId: ${sheetId}`,
+    );
+    try {
+      const id = extractDocId(spreadsheetId) || spreadsheetId;
+      const sheets = await this.getSheetsClient();
+      const tabs = await this.listTabs(sheets, id);
+      this.requireTab(tabs, sheetId);
+      const request = build(tabs);
+      const response = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: id,
+        requestBody: { requests: [request] },
+      });
+      logToFile(`[SheetsService] Finished ${tool} for spreadsheet: ${id}`);
+      return this.jsonResult(result(response.data));
+    } catch (error) {
+      return this.errorResult(`sheets.${tool}`, error);
+    }
+  }
+
+  public createSpreadsheet = async ({
+    title,
+    sheetTitles,
+  }: {
+    title: string;
+    sheetTitles?: string[];
+  }) => {
+    logToFile(`[SheetsService] Starting createSpreadsheet, title: ${title}`);
+    try {
+      const lower = (sheetTitles ?? []).map((t) => t.toLowerCase());
+      if (new Set(lower).size !== lower.length) {
+        throw new Error('sheetTitles must be unique.');
+      }
+      const sheets = await this.getSheetsClient();
+      const response = await sheets.spreadsheets.create({
+        requestBody: {
+          properties: { title },
+          ...(sheetTitles?.length && {
+            sheets: sheetTitles.map((t) => ({ properties: { title: t } })),
+          }),
+        },
+        fields: 'spreadsheetId,spreadsheetUrl,sheets.properties(sheetId,title)',
+      });
+      return this.jsonResult({
+        spreadsheetId: response.data.spreadsheetId,
+        url: response.data.spreadsheetUrl,
+        sheets: (response.data.sheets ?? []).map((s) => ({
+          sheetId: s.properties?.sheetId,
+          title: s.properties?.title,
+        })),
+      });
+    } catch (error) {
+      return this.errorResult('sheets.createSpreadsheet', error);
+    }
+  };
+
+  public duplicateSheet = async ({
+    spreadsheetId,
+    sheetId,
+    newTitle,
+    index,
+  }: {
+    spreadsheetId: string;
+    sheetId: number;
+    newTitle?: string;
+    index?: number;
+  }) =>
+    this.runBatch(
+      'duplicateSheet',
+      spreadsheetId,
+      sheetId,
+      (tabs) => {
+        if (newTitle !== undefined) this.requireUniqueTitle(tabs, newTitle);
+        return {
+          duplicateSheet: {
+            sourceSheetId: sheetId,
+            ...(newTitle !== undefined && { newSheetName: newTitle }),
+            ...(index !== undefined && { insertSheetIndex: index }),
+          },
+        };
+      },
+      (data) => {
+        const p = data.replies?.[0]?.duplicateSheet?.properties;
+        return { sheetId: p?.sheetId, title: p?.title, index: p?.index };
+      },
+    );
+
+  public clearRange = async ({
+    spreadsheetId,
+    range,
+  }: {
+    spreadsheetId: string;
+    range: string;
+  }) => {
+    logToFile(
+      `[SheetsService] Starting clearRange for spreadsheet: ${spreadsheetId}, range: ${range}`,
+    );
+    try {
+      const id = extractDocId(spreadsheetId) || spreadsheetId;
+      const sheets = await this.getSheetsClient();
+      const response = await sheets.spreadsheets.values.clear({
+        spreadsheetId: id,
+        range,
+      });
+      logToFile(`[SheetsService] Finished clearRange for spreadsheet: ${id}`);
+      return this.jsonResult({ clearedRange: response.data.clearedRange });
+    } catch (error) {
+      return this.errorResult('sheets.clearRange', error);
+    }
+  };
+
+  public formatRange = async ({
+    spreadsheetId,
+    sheetId,
+    range,
+    bold,
+    numberFormat,
+  }: {
+    spreadsheetId: string;
+    sheetId: number;
+    range: string;
+    bold?: boolean;
+    numberFormat?: { type: string; pattern?: string };
+  }) =>
+    this.runBatch(
+      'formatRange',
+      spreadsheetId,
+      sheetId,
+      () => {
+        const userEnteredFormat: sheets_v4.Schema$CellFormat = {};
+        const fields: string[] = [];
+        if (bold !== undefined) {
+          userEnteredFormat.textFormat = { bold };
+          fields.push('userEnteredFormat.textFormat.bold');
+        }
+        if (numberFormat) {
+          userEnteredFormat.numberFormat = numberFormat;
+          fields.push('userEnteredFormat.numberFormat');
+        }
+        if (fields.length === 0) {
+          throw new Error('Nothing to format: provide bold or numberFormat.');
+        }
+        return {
+          repeatCell: {
+            range: this.toGridRange(sheetId, range),
+            cell: { userEnteredFormat },
+            fields: fields.join(','),
+          },
+        };
+      },
+      () => ({ sheetId, range, formatted: true }),
+    );
+
+  public setColumnWidth = async ({
+    spreadsheetId,
+    sheetId,
+    columns,
+    pixelSize,
+  }: {
+    spreadsheetId: string;
+    sheetId: number;
+    columns: string;
+    pixelSize: number;
+  }) =>
+    this.runBatch(
+      'setColumnWidth',
+      spreadsheetId,
+      sheetId,
+      () => {
+        if (!/^[A-Za-z]{1,3}(:[A-Za-z]{1,3})?$/.test(columns.trim())) {
+          throw new Error(
+            `Invalid columns "${columns}": expected a letter or letter range like "B" or "A:C".`,
+          );
+        }
+        const { startColumnIndex, endColumnIndex } = this.toGridRange(
+          sheetId,
+          columns.trim(),
+        );
+        return {
+          updateDimensionProperties: {
+            range: {
+              sheetId,
+              dimension: 'COLUMNS',
+              startIndex: startColumnIndex,
+              endIndex: endColumnIndex,
+            },
+            properties: { pixelSize },
+            fields: 'pixelSize',
+          },
+        };
+      },
+      () => ({ sheetId, columns, pixelSize }),
+    );
+
+  public insertDimension = async ({
+    spreadsheetId,
+    sheetId,
+    dimension,
+    startIndex,
+    count,
+  }: {
+    spreadsheetId: string;
+    sheetId: number;
+    dimension: 'ROWS' | 'COLUMNS';
+    startIndex: number;
+    count: number;
+  }) =>
+    this.runBatch(
+      'insertDimension',
+      spreadsheetId,
+      sheetId,
+      () => ({
+        insertDimension: {
+          range: {
+            sheetId,
+            dimension,
+            startIndex,
+            endIndex: startIndex + count,
+          },
+          // Inherit formatting from the row/column before, except at the very start.
+          inheritFromBefore: startIndex > 0,
+        },
+      }),
+      () => ({ sheetId, dimension, startIndex, inserted: count }),
+    );
+
+  public deleteDimension = async ({
+    spreadsheetId,
+    sheetId,
+    dimension,
+    startIndex,
+    count,
+  }: {
+    spreadsheetId: string;
+    sheetId: number;
+    dimension: 'ROWS' | 'COLUMNS';
+    startIndex: number;
+    count: number;
+  }) =>
+    this.runBatch(
+      'deleteDimension',
+      spreadsheetId,
+      sheetId,
+      () => ({
+        deleteDimension: {
+          range: {
+            sheetId,
+            dimension,
+            startIndex,
+            endIndex: startIndex + count,
+          },
+        },
+      }),
+      () => ({ sheetId, dimension, startIndex, deleted: count }),
+    );
+
+  public sortRange = async ({
+    spreadsheetId,
+    sheetId,
+    range,
+    sortColumn,
+    descending = false,
+  }: {
+    spreadsheetId: string;
+    sheetId: number;
+    range: string;
+    sortColumn: string;
+    descending?: boolean;
+  }) =>
+    this.runBatch(
+      'sortRange',
+      spreadsheetId,
+      sheetId,
+      () => {
+        if (!/^[A-Za-z]{1,3}$/.test(sortColumn)) {
+          throw new Error(
+            `Invalid sortColumn "${sortColumn}": expected a column letter like "C".`,
+          );
+        }
+        const grid = this.toGridRange(sheetId, range);
+        const dimensionIndex = this.columnToIndex(sortColumn);
+        if (
+          (grid.startColumnIndex !== undefined &&
+            dimensionIndex < grid.startColumnIndex) ||
+          (grid.endColumnIndex !== undefined &&
+            dimensionIndex >= grid.endColumnIndex)
+        ) {
+          throw new Error(
+            `sortColumn ${sortColumn} is outside the range ${range}.`,
+          );
+        }
+        return {
+          sortRange: {
+            range: grid,
+            sortSpecs: [
+              {
+                dimensionIndex,
+                sortOrder: descending ? 'DESCENDING' : 'ASCENDING',
+              },
+            ],
+          },
+        };
+      },
+      () => ({ sheetId, range, sortColumn, descending }),
+    );
 }

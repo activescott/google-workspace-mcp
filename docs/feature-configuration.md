@@ -213,6 +213,14 @@ When a feature group is disabled:
 - `sheets.deleteSheet`
 - `sheets.renameSheet`
 - `sheets.updateSheetProperties`
+- `sheets.createSpreadsheet`
+- `sheets.duplicateSheet`
+- `sheets.clearRange`
+- `sheets.formatRange`
+- `sheets.setColumnWidth`
+- `sheets.insertDimension`
+- `sheets.deleteDimension`
+- `sheets.sortRange`
 
 ### `time.read`
 
