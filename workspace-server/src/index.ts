@@ -38,7 +38,11 @@ import {
 } from './services/calendar-schemas';
 import { TimeService } from './services/TimeService';
 import { PeopleService } from './services/PeopleService';
-import { SlidesService, PREDEFINED_LAYOUTS } from './services/SlidesService';
+import {
+  SlidesService,
+  PREDEFINED_LAYOUTS,
+  THUMBNAIL_SIZES,
+} from './services/SlidesService';
 import { SheetsService } from './services/SheetsService';
 import { TasksService } from './services/TasksService';
 import { GMAIL_SEARCH_MAX_RESULTS } from './utils/constants';
@@ -656,6 +660,53 @@ async function main() {
       },
     },
     slidesService.getSlideThumbnail,
+  );
+
+  registerTool(
+    'slides.listElements',
+    {
+      description:
+        'Lists the page elements on each slide of a Google Slides presentation: objectId, type, position and size in points, and for text, each paragraph with its startIndex and endIndex, its bullet and its links. Use the objectId and indexes with slides.insertText, slides.deleteText and slides.updateTextStyle. A group lists its elements under children.',
+      inputSchema: {
+        presentationId: z
+          .string()
+          .describe('The ID or URL of the presentation.'),
+        slideObjectId: z
+          .string()
+          .optional()
+          .describe(
+            'Only list this slide. If not provided, lists every slide.',
+          ),
+      },
+      ...readOnlyToolProps,
+    },
+    slidesService.listElements,
+  );
+
+  registerTool(
+    'slides.getSlideImage',
+    {
+      description:
+        'Renders one slide of a Google Slides presentation as a PNG and returns the image itself, so it can be looked at. Unlike slides.getSlideThumbnail, it writes no file.',
+      inputSchema: {
+        presentationId: z
+          .string()
+          .describe('The ID or URL of the presentation.'),
+        slideObjectId: z
+          .string()
+          .describe(
+            'The object ID of the slide (can be found via slides.getMetadata or slides.listElements).',
+          ),
+        size: z
+          .enum(THUMBNAIL_SIZES)
+          .optional()
+          .describe(
+            'SMALL is 200 px wide, MEDIUM 800 px and LARGE 1600 px. Defaults to MEDIUM.',
+          ),
+      },
+      ...readOnlyToolProps,
+    },
+    slidesService.getSlideImage,
   );
 
   registerTool(

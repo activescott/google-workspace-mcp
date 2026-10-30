@@ -42,6 +42,10 @@ to write the edit as a suggestion instead of editing directly.
   presentation to a local directory.
 - `slides.getSlideThumbnail`: Downloads a thumbnail image for a specific slide
   in a Google Slides presentation to a local path.
+- `slides.getSlideImage`: Renders one slide as a PNG and returns the image
+  itself, writing no file.
+- `slides.listElements`: Lists each slide's page elements with their object IDs,
+  type, position, size, and text paragraphs with their start indexes.
 
 ### Google Sheets
 

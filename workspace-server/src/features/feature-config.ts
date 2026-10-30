@@ -208,6 +208,8 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
       'slides.getMetadata',
       'slides.getImages',
       'slides.getSlideThumbnail',
+      'slides.getSlideImage',
+      'slides.listElements',
       'slides.getSpeakerNotes',
     ],
     defaultEnabled: true,
