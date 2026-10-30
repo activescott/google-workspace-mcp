@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 Google LLC
+ * Copyright 2025 Scott Willeke
  * SPDX-License-Identifier: Apache-2.0
  *
  * Modifications copyright 2026 Scott Willeke
