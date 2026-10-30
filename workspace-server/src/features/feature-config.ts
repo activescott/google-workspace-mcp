@@ -249,7 +249,14 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
     service: 'sheets',
     group: 'write',
     scopes: scopes('spreadsheets'),
-    tools: ['sheets.updateRange', 'sheets.appendRows'],
+    tools: [
+      'sheets.updateRange',
+      'sheets.appendRows',
+      'sheets.addSheet',
+      'sheets.deleteSheet',
+      'sheets.renameSheet',
+      'sheets.updateSheetProperties',
+    ],
     defaultEnabled: false,
   },
 

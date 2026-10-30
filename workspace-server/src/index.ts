@@ -1172,6 +1172,107 @@ async function main() {
     sheetsService.appendRows,
   );
 
+  const sheetIdSchema = z
+    .number()
+    .int()
+    .describe(
+      'The numeric sheetId of the tab (from sheets.getMetadata or sheets.addSheet), not its title.',
+    );
+
+  registerTool(
+    'sheets.addSheet',
+    {
+      description:
+        "Adds a new tab to a Google Sheets spreadsheet. Returns the new tab's sheetId and title. Fails if a tab with that title already exists.",
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        title: z.string().min(1).describe('The title of the new tab.'),
+        index: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('Zero-based position of the tab (default: the end).'),
+        rowCount: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe('Number of rows in the new tab (default: 1000).'),
+        columnCount: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe('Number of columns in the new tab (default: 26).'),
+      },
+    },
+    sheetsService.addSheet,
+  );
+
+  registerTool(
+    'sheets.deleteSheet',
+    {
+      description:
+        'Deletes a tab, and all its data, from a Google Sheets spreadsheet. A spreadsheet must keep at least one tab.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+      },
+    },
+    sheetsService.deleteSheet,
+  );
+
+  registerTool(
+    'sheets.renameSheet',
+    {
+      description:
+        'Renames a tab in a Google Sheets spreadsheet. Fails if another tab already has that title.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        title: z.string().min(1).describe('The new title of the tab.'),
+      },
+    },
+    sheetsService.renameSheet,
+  );
+
+  registerTool(
+    'sheets.updateSheetProperties',
+    {
+      description:
+        'Updates properties of a tab in a Google Sheets spreadsheet: position, frozen rows and columns, hidden state and tab color. Only the properties you pass are changed.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        index: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('New zero-based position of the tab.'),
+        frozenRowCount: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('Number of rows to freeze at the top (0 unfreezes).'),
+        frozenColumnCount: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('Number of columns to freeze at the left (0 unfreezes).'),
+        hidden: z.boolean().optional().describe('Whether the tab is hidden.'),
+        tabColor: z
+          .string()
+          .optional()
+          .describe('Tab color as a hex string, e.g. "#FF9900".'),
+      },
+    },
+    sheetsService.updateSheetProperties,
+  );
+
   registerTool(
     'drive.search',
     {

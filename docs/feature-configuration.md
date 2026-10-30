@@ -209,6 +209,10 @@ When a feature group is disabled:
 
 - `sheets.updateRange`
 - `sheets.appendRows`
+- `sheets.addSheet`
+- `sheets.deleteSheet`
+- `sheets.renameSheet`
+- `sheets.updateSheetProperties`
 
 ### `time.read`
 

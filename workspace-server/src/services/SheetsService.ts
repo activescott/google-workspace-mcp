@@ -360,4 +360,272 @@ export class SheetsService {
       };
     }
   };
+
+  private errorResult(tool: string, error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logToFile(`[SheetsService] Error during ${tool}: ${errorMessage}`);
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({ error: errorMessage }),
+        },
+      ],
+    };
+  }
+
+  private jsonResult(body: unknown) {
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(body) }],
+    };
+  }
+
+  private async listTabs(
+    sheets: sheets_v4.Sheets,
+    spreadsheetId: string,
+  ): Promise<sheets_v4.Schema$SheetProperties[]> {
+    const response = await sheets.spreadsheets.get({
+      spreadsheetId,
+      fields: 'sheets.properties(sheetId,title)',
+    });
+    return (response.data.sheets ?? []).map((s) => s.properties ?? {});
+  }
+
+  private requireTab(
+    tabs: sheets_v4.Schema$SheetProperties[],
+    sheetId: number,
+  ): sheets_v4.Schema$SheetProperties {
+    const tab = tabs.find((t) => t.sheetId === sheetId);
+    if (!tab) {
+      const known = tabs.map((t) => `${t.sheetId} ("${t.title}")`).join(', ');
+      throw new Error(
+        `No sheet with sheetId ${sheetId} in this spreadsheet. Existing sheets: ${known}`,
+      );
+    }
+    return tab;
+  }
+
+  private requireUniqueTitle(
+    tabs: sheets_v4.Schema$SheetProperties[],
+    title: string,
+    exceptSheetId?: number,
+  ) {
+    // Google compares sheet names case-insensitively.
+    const clash = tabs.find(
+      (t) =>
+        t.sheetId !== exceptSheetId &&
+        t.title?.toLowerCase() === title.toLowerCase(),
+    );
+    if (clash) {
+      throw new Error(
+        `A sheet titled "${clash.title}" already exists (sheetId ${clash.sheetId}); sheet titles must be unique.`,
+      );
+    }
+  }
+
+  private parseTabColor(hex: string): sheets_v4.Schema$Color {
+    const match = /^#?([0-9a-f]{6})$/i.exec(hex);
+    if (!match) {
+      throw new Error(
+        `Invalid tabColor "${hex}": expected a hex color like "#FF9900".`,
+      );
+    }
+    const n = parseInt(match[1], 16);
+    return {
+      red: ((n >> 16) & 255) / 255,
+      green: ((n >> 8) & 255) / 255,
+      blue: (n & 255) / 255,
+    };
+  }
+
+  public addSheet = async ({
+    spreadsheetId,
+    title,
+    index,
+    rowCount,
+    columnCount,
+  }: {
+    spreadsheetId: string;
+    title: string;
+    index?: number;
+    rowCount?: number;
+    columnCount?: number;
+  }) => {
+    logToFile(
+      `[SheetsService] Starting addSheet for spreadsheet: ${spreadsheetId}, title: ${title}`,
+    );
+    try {
+      const id = extractDocId(spreadsheetId) || spreadsheetId;
+      const sheets = await this.getSheetsClient();
+      this.requireUniqueTitle(await this.listTabs(sheets, id), title);
+
+      const properties: sheets_v4.Schema$SheetProperties = { title };
+      if (index !== undefined) properties.index = index;
+      if (rowCount !== undefined || columnCount !== undefined) {
+        properties.gridProperties = {};
+        if (rowCount !== undefined)
+          properties.gridProperties.rowCount = rowCount;
+        if (columnCount !== undefined)
+          properties.gridProperties.columnCount = columnCount;
+      }
+
+      const response = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: id,
+        requestBody: { requests: [{ addSheet: { properties } }] },
+      });
+      const added = response.data.replies?.[0]?.addSheet?.properties;
+      logToFile(`[SheetsService] Finished addSheet for spreadsheet: ${id}`);
+      return this.jsonResult({
+        sheetId: added?.sheetId,
+        title: added?.title,
+        index: added?.index,
+      });
+    } catch (error) {
+      return this.errorResult('sheets.addSheet', error);
+    }
+  };
+
+  public deleteSheet = async ({
+    spreadsheetId,
+    sheetId,
+  }: {
+    spreadsheetId: string;
+    sheetId: number;
+  }) => {
+    logToFile(
+      `[SheetsService] Starting deleteSheet for spreadsheet: ${spreadsheetId}, sheetId: ${sheetId}`,
+    );
+    try {
+      const id = extractDocId(spreadsheetId) || spreadsheetId;
+      const sheets = await this.getSheetsClient();
+      const tab = this.requireTab(await this.listTabs(sheets, id), sheetId);
+
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: id,
+        requestBody: { requests: [{ deleteSheet: { sheetId } }] },
+      });
+      logToFile(`[SheetsService] Finished deleteSheet for spreadsheet: ${id}`);
+      return this.jsonResult({ deleted: true, sheetId, title: tab.title });
+    } catch (error) {
+      return this.errorResult('sheets.deleteSheet', error);
+    }
+  };
+
+  public renameSheet = async ({
+    spreadsheetId,
+    sheetId,
+    title,
+  }: {
+    spreadsheetId: string;
+    sheetId: number;
+    title: string;
+  }) => {
+    logToFile(
+      `[SheetsService] Starting renameSheet for spreadsheet: ${spreadsheetId}, sheetId: ${sheetId}`,
+    );
+    try {
+      const id = extractDocId(spreadsheetId) || spreadsheetId;
+      const sheets = await this.getSheetsClient();
+      const tabs = await this.listTabs(sheets, id);
+      this.requireTab(tabs, sheetId);
+      this.requireUniqueTitle(tabs, title, sheetId);
+
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: id,
+        requestBody: {
+          requests: [
+            {
+              updateSheetProperties: {
+                properties: { sheetId, title },
+                fields: 'title',
+              },
+            },
+          ],
+        },
+      });
+      logToFile(`[SheetsService] Finished renameSheet for spreadsheet: ${id}`);
+      return this.jsonResult({ sheetId, title });
+    } catch (error) {
+      return this.errorResult('sheets.renameSheet', error);
+    }
+  };
+
+  public updateSheetProperties = async ({
+    spreadsheetId,
+    sheetId,
+    index,
+    frozenRowCount,
+    frozenColumnCount,
+    hidden,
+    tabColor,
+  }: {
+    spreadsheetId: string;
+    sheetId: number;
+    index?: number;
+    frozenRowCount?: number;
+    frozenColumnCount?: number;
+    hidden?: boolean;
+    tabColor?: string;
+  }) => {
+    logToFile(
+      `[SheetsService] Starting updateSheetProperties for spreadsheet: ${spreadsheetId}, sheetId: ${sheetId}`,
+    );
+    try {
+      const id = extractDocId(spreadsheetId) || spreadsheetId;
+
+      const properties: sheets_v4.Schema$SheetProperties = { sheetId };
+      const fields: string[] = [];
+      if (index !== undefined) {
+        properties.index = index;
+        fields.push('index');
+      }
+      if (hidden !== undefined) {
+        properties.hidden = hidden;
+        fields.push('hidden');
+      }
+      if (tabColor !== undefined) {
+        properties.tabColor = this.parseTabColor(tabColor);
+        fields.push('tabColor');
+      }
+      if (frozenRowCount !== undefined) {
+        properties.gridProperties = {
+          ...properties.gridProperties,
+          frozenRowCount,
+        };
+        fields.push('gridProperties.frozenRowCount');
+      }
+      if (frozenColumnCount !== undefined) {
+        properties.gridProperties = {
+          ...properties.gridProperties,
+          frozenColumnCount,
+        };
+        fields.push('gridProperties.frozenColumnCount');
+      }
+      if (fields.length === 0) {
+        throw new Error(
+          'Nothing to update: provide at least one of index, frozenRowCount, frozenColumnCount, hidden, tabColor.',
+        );
+      }
+
+      const sheets = await this.getSheetsClient();
+      this.requireTab(await this.listTabs(sheets, id), sheetId);
+
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: id,
+        requestBody: {
+          requests: [
+            {
+              updateSheetProperties: { properties, fields: fields.join(',') },
+            },
+          ],
+        },
+      });
+      logToFile(
+        `[SheetsService] Finished updateSheetProperties for spreadsheet: ${id}`,
+      );
+      return this.jsonResult({ sheetId, updated: fields });
+    } catch (error) {
+      return this.errorResult('sheets.updateSheetProperties', error);
+    }
+  };
 }

@@ -38,6 +38,7 @@ describe('SheetsService', () => {
     mockSheetsAPI = {
       spreadsheets: {
         get: jest.fn(),
+        batchUpdate: jest.fn(),
         values: {
           get: jest.fn(),
           update: jest.fn(),
@@ -484,6 +485,256 @@ describe('SheetsService', () => {
       expect(JSON.parse(result.content[0].text).error).toBe(
         'Unable to parse range: Nope!A1',
       );
+    });
+  });
+
+  describe('tab tools', () => {
+    const existing = {
+      data: {
+        sheets: [
+          { properties: { sheetId: 0, title: 'Sheet1' } },
+          { properties: { sheetId: 42, title: 'Vendors' } },
+        ],
+      },
+    };
+
+    beforeEach(() => {
+      mockSheetsAPI.spreadsheets.get.mockResolvedValue(existing);
+      mockSheetsAPI.spreadsheets.batchUpdate.mockResolvedValue({ data: {} });
+    });
+
+    describe('addSheet', () => {
+      it('should add a sheet and return its id and title', async () => {
+        mockSheetsAPI.spreadsheets.batchUpdate.mockResolvedValue({
+          data: {
+            replies: [
+              {
+                addSheet: { properties: { sheetId: 7, title: 'Q3', index: 1 } },
+              },
+            ],
+          },
+        });
+
+        const result = await sheetsService.addSheet({
+          spreadsheetId: 'https://docs.google.com/spreadsheets/d/test-id/edit',
+          title: 'Q3',
+          index: 1,
+          rowCount: 50,
+          columnCount: 5,
+        });
+
+        expect(mockSheetsAPI.spreadsheets.batchUpdate).toHaveBeenCalledWith({
+          spreadsheetId: 'test-id',
+          requestBody: {
+            requests: [
+              {
+                addSheet: {
+                  properties: {
+                    title: 'Q3',
+                    index: 1,
+                    gridProperties: { rowCount: 50, columnCount: 5 },
+                  },
+                },
+              },
+            ],
+          },
+        });
+        expect(JSON.parse(result.content[0].text)).toEqual({
+          sheetId: 7,
+          title: 'Q3',
+          index: 1,
+        });
+      });
+
+      it('should reject a duplicate title, ignoring case', async () => {
+        const result = await sheetsService.addSheet({
+          spreadsheetId: 'test-id',
+          title: 'vendors',
+        });
+
+        expect(JSON.parse(result.content[0].text).error).toContain(
+          'already exists (sheetId 42)',
+        );
+        expect(mockSheetsAPI.spreadsheets.batchUpdate).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('deleteSheet', () => {
+      it('should delete a sheet', async () => {
+        const result = await sheetsService.deleteSheet({
+          spreadsheetId: 'test-id',
+          sheetId: 42,
+        });
+
+        expect(mockSheetsAPI.spreadsheets.batchUpdate).toHaveBeenCalledWith({
+          spreadsheetId: 'test-id',
+          requestBody: { requests: [{ deleteSheet: { sheetId: 42 } }] },
+        });
+        expect(JSON.parse(result.content[0].text)).toEqual({
+          deleted: true,
+          sheetId: 42,
+          title: 'Vendors',
+        });
+      });
+
+      it('should report an unknown sheetId', async () => {
+        const result = await sheetsService.deleteSheet({
+          spreadsheetId: 'test-id',
+          sheetId: 99,
+        });
+
+        const error = JSON.parse(result.content[0].text).error;
+        expect(error).toContain('No sheet with sheetId 99');
+        expect(error).toContain('42 ("Vendors")');
+        expect(mockSheetsAPI.spreadsheets.batchUpdate).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('renameSheet', () => {
+      it('should rename with a title-only field mask', async () => {
+        const result = await sheetsService.renameSheet({
+          spreadsheetId: 'test-id',
+          sheetId: 42,
+          title: 'Suppliers',
+        });
+
+        expect(mockSheetsAPI.spreadsheets.batchUpdate).toHaveBeenCalledWith({
+          spreadsheetId: 'test-id',
+          requestBody: {
+            requests: [
+              {
+                updateSheetProperties: {
+                  properties: { sheetId: 42, title: 'Suppliers' },
+                  fields: 'title',
+                },
+              },
+            ],
+          },
+        });
+        expect(JSON.parse(result.content[0].text)).toEqual({
+          sheetId: 42,
+          title: 'Suppliers',
+        });
+      });
+
+      it('should allow renaming a sheet to its own title', async () => {
+        const result = await sheetsService.renameSheet({
+          spreadsheetId: 'test-id',
+          sheetId: 42,
+          title: 'VENDORS',
+        });
+
+        expect(JSON.parse(result.content[0].text).error).toBeUndefined();
+      });
+
+      it('should reject a title used by another sheet', async () => {
+        const result = await sheetsService.renameSheet({
+          spreadsheetId: 'test-id',
+          sheetId: 42,
+          title: 'Sheet1',
+        });
+
+        expect(JSON.parse(result.content[0].text).error).toContain(
+          'already exists (sheetId 0)',
+        );
+      });
+
+      it('should report an unknown sheetId', async () => {
+        const result = await sheetsService.renameSheet({
+          spreadsheetId: 'test-id',
+          sheetId: 99,
+          title: 'X',
+        });
+
+        expect(JSON.parse(result.content[0].text).error).toContain(
+          'No sheet with sheetId 99',
+        );
+      });
+    });
+
+    describe('updateSheetProperties', () => {
+      it('should build a field mask from only the provided properties', async () => {
+        const result = await sheetsService.updateSheetProperties({
+          spreadsheetId: 'test-id',
+          sheetId: 42,
+          index: 0,
+          frozenRowCount: 1,
+          frozenColumnCount: 2,
+          hidden: false,
+          tabColor: '#FF0000',
+        });
+
+        expect(mockSheetsAPI.spreadsheets.batchUpdate).toHaveBeenCalledWith({
+          spreadsheetId: 'test-id',
+          requestBody: {
+            requests: [
+              {
+                updateSheetProperties: {
+                  properties: {
+                    sheetId: 42,
+                    index: 0,
+                    hidden: false,
+                    tabColor: { red: 1, green: 0, blue: 0 },
+                    gridProperties: { frozenRowCount: 1, frozenColumnCount: 2 },
+                  },
+                  fields:
+                    'index,hidden,tabColor,gridProperties.frozenRowCount,gridProperties.frozenColumnCount',
+                },
+              },
+            ],
+          },
+        });
+        expect(JSON.parse(result.content[0].text).sheetId).toBe(42);
+      });
+
+      it('should leave unspecified properties out of the mask', async () => {
+        await sheetsService.updateSheetProperties({
+          spreadsheetId: 'test-id',
+          sheetId: 42,
+          frozenRowCount: 0,
+        });
+
+        const call = mockSheetsAPI.spreadsheets.batchUpdate.mock.calls[0][0];
+        expect(call.requestBody.requests[0].updateSheetProperties.fields).toBe(
+          'gridProperties.frozenRowCount',
+        );
+      });
+
+      it('should reject an invalid tab color', async () => {
+        const result = await sheetsService.updateSheetProperties({
+          spreadsheetId: 'test-id',
+          sheetId: 42,
+          tabColor: 'red',
+        });
+
+        expect(JSON.parse(result.content[0].text).error).toContain(
+          'Invalid tabColor',
+        );
+      });
+
+      it('should reject a call with nothing to update', async () => {
+        const result = await sheetsService.updateSheetProperties({
+          spreadsheetId: 'test-id',
+          sheetId: 42,
+        });
+
+        expect(JSON.parse(result.content[0].text).error).toContain(
+          'Nothing to update',
+        );
+      });
+
+      it('should report an unknown sheetId', async () => {
+        const result = await sheetsService.updateSheetProperties({
+          spreadsheetId: 'test-id',
+          sheetId: 99,
+          hidden: true,
+        });
+
+        expect(JSON.parse(result.content[0].text).error).toContain(
+          'No sheet with sheetId 99',
+        );
+        expect(mockSheetsAPI.spreadsheets.batchUpdate).not.toHaveBeenCalled();
+      });
     });
   });
 });
