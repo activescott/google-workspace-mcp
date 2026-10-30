@@ -50,6 +50,7 @@ import { gmailAttachmentSchema } from './utils/validation';
 
 import { setLoggingEnabled, logToFile } from './utils/logger';
 import { applyToolNameNormalization } from './utils/tool-normalization';
+import { applyToolErrorResults } from './utils/tool-errors';
 import { SCOPES } from './auth/scopes';
 import { resolveFeatures } from './features/index';
 
@@ -233,6 +234,7 @@ async function main() {
   const useDotNames = process.argv.includes('--use-dot-names');
   const separator = useDotNames ? '.' : '_';
   applyToolNameNormalization(server, useDotNames);
+  applyToolErrorResults(server);
 
   // Wrap registerTool to skip tools disabled by feature config.
   // Auth tools are always registered (not gated by features).
@@ -305,7 +307,7 @@ async function main() {
     'drive.getComments',
     {
       description:
-        'Retrieves comments from a Google Drive file (Docs, Sheets, Slides, etc.).',
+        'Retrieves all comments from a Google Drive file (Docs, Sheets, Slides, etc.). Each comment has its id, content, author, createdTime, resolved, quotedFileContent.value (the text the comment is anchored to, absent for unanchored comments) and replies (each with id, content, author, createdTime and action, which is "resolve" or "reopen" when the reply changed the thread\'s state). Pass a comment id to drive.replyToComment or drive.resolveComment.',
       inputSchema: {
         fileId: z
           .string()
@@ -349,6 +351,12 @@ async function main() {
           .optional()
           .describe(
             'The ID of the tab to modify. If not provided, modifies the first tab.',
+          ),
+        suggest: z
+          .boolean()
+          .optional()
+          .describe(
+            'If true, writes the edit as a suggestion that the document owner can accept or reject, instead of editing directly. Defaults to false.',
           ),
       },
     },
@@ -405,6 +413,27 @@ async function main() {
   );
 
   registerTool(
+    'docs.getStructure',
+    {
+      description:
+        'Reads the paragraph structure and formatting of a Google Doc, so you can find the range to format and check the result. For each paragraph, including those in table cells, returns startIndex, endIndex (exclusive), text, namedStyle (NORMAL_TEXT, TITLE, HEADING_1 to HEADING_6), bullet (listId and nestingLevel, starting at 0) if it is a list item, table (row and column, from 0) if it is in a table cell, and styledRuns: the runs with bold, italic, underline, strikethrough or a link set directly on the text. Styles a paragraph gets from its named style, such as bold headings, are not listed. Smart chips and images appear in text as U+FFFC, one index each. Indices include pending suggestions, so they match the indices docs.formatText and docs.addComment take.',
+      inputSchema: {
+        documentId: z
+          .string()
+          .describe('The ID or URL of the document to read.'),
+        tabId: z
+          .string()
+          .optional()
+          .describe(
+            'The ID of the tab to read. If not provided, returns all tabs.',
+          ),
+      },
+      ...readOnlyToolProps,
+    },
+    docsService.getStructure,
+  );
+
+  registerTool(
     'docs.replaceText',
     {
       description:
@@ -421,6 +450,12 @@ async function main() {
           .describe(
             'The ID of the tab to modify. If not provided, replaces in all tabs (legacy behavior).',
           ),
+        suggest: z
+          .boolean()
+          .optional()
+          .describe(
+            'If true, writes the edit as a suggestion that the document owner can accept or reject, instead of editing directly. Defaults to false.',
+          ),
       },
     },
     docsService.replaceText,
@@ -430,7 +465,7 @@ async function main() {
     'docs.formatText',
     {
       description:
-        'Applies formatting (bold, italic, headings, etc.) to text ranges in a Google Doc. Use after inserting text to apply rich formatting.',
+        'Applies formatting (bold, italic, headings, bullets, etc.) to text ranges in a Google Doc. Use after inserting text to apply rich formatting. Text inserted after a bulleted paragraph inherits its bullets; use removeBullets on that range to clear them. Use docs.getStructure to find ranges and check the result.',
       inputSchema: {
         documentId: z.string().describe('The ID of the document to format.'),
         formats: z
@@ -447,7 +482,7 @@ async function main() {
               style: z
                 .string()
                 .describe(
-                  'The formatting style to apply. Supported: bold, italic, underline, strikethrough, code, link, heading1, heading2, heading3, heading4, heading5, heading6, normalText.',
+                  'The formatting style to apply. Supported: bold, italic, underline, strikethrough, code, link, heading1, heading2, heading3, heading4, heading5, heading6, normalText, bullets, numberedList, removeBullets. bullets, numberedList and removeBullets apply to every paragraph the range touches; leading tabs in a paragraph set its nesting level.',
                 ),
               url: z
                 .string()
@@ -464,9 +499,92 @@ async function main() {
           .describe(
             'The ID of the tab to format. If not provided, formats the first tab.',
           ),
+        suggest: z
+          .boolean()
+          .optional()
+          .describe(
+            'If true, writes the edit as a suggestion that the document owner can accept or reject, instead of editing directly. Defaults to false.',
+          ),
       },
     },
     docsService.formatText,
+  );
+
+  registerTool(
+    'docs.addComment',
+    {
+      description:
+        'Adds a comment to a Google Doc, anchored to a passage of text. Anchor it with quotedText (an exact passage from the document body) or with startIndex and endIndex. Limits: every comment needs an anchor, so a comment on the whole document is not possible; quotedText is matched exactly (case and whitespace) against the body of one tab only, not headers, footers or footnotes; and it cannot span a smart chip, image or table cell boundary. Use startIndex/endIndex (from docs.getStructure) when quotedText cannot match.',
+      inputSchema: {
+        documentId: z
+          .string()
+          .describe('The ID or URL of the document to comment on.'),
+        content: z.string().min(1).describe('The text of the comment.'),
+        quotedText: z
+          .string()
+          .optional()
+          .describe(
+            'The exact passage in the document to anchor the comment to.',
+          ),
+        occurrence: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe(
+            'Which match of quotedText to anchor to, counting from 1 (default 1).',
+          ),
+        startIndex: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            'Start index of the range to anchor to. Used with endIndex when quotedText is not given.',
+          ),
+        endIndex: z
+          .number()
+          .int()
+          .optional()
+          .describe('End index (exclusive) of the range to anchor to.'),
+        tabId: z
+          .string()
+          .optional()
+          .describe(
+            'The ID of the tab to comment on. If not provided, uses the first tab.',
+          ),
+      },
+    },
+    docsService.addComment,
+  );
+
+  registerTool(
+    'docs.acceptSuggestion',
+    {
+      description:
+        'Accepts a suggested edit in a Google Doc by suggestion ID (from docs.getSuggestions). Requires edit access to the document.',
+      inputSchema: {
+        documentId: z.string().describe('The ID or URL of the document.'),
+        suggestionId: z
+          .string()
+          .describe('The ID of the suggestion to accept.'),
+      },
+    },
+    docsService.acceptSuggestion,
+  );
+
+  registerTool(
+    'docs.rejectSuggestion',
+    {
+      description:
+        'Rejects a suggested edit in a Google Doc by suggestion ID (from docs.getSuggestions). Requires edit access to the document, or being the author of the suggestion.',
+      inputSchema: {
+        documentId: z.string().describe('The ID or URL of the document.'),
+        suggestionId: z
+          .string()
+          .describe('The ID of the suggestion to reject.'),
+      },
+    },
+    docsService.rejectSuggestion,
   );
 
   // Slides tools
@@ -1159,6 +1277,51 @@ async function main() {
       },
     },
     driveService.renameFile,
+  );
+
+  registerTool(
+    'drive.replyToComment',
+    {
+      description:
+        'Replies to an existing comment thread on a Google Drive file (Docs, Sheets, Slides, etc.). The reply appears under the comment, posted as the signed-in user, and notifies the people in the thread. Get the comment ID from drive.getComments. Returns the new reply ID.',
+      inputSchema: {
+        fileId: z
+          .string()
+          .describe('The ID or URL of the file the comment is on.'),
+        commentId: z
+          .string()
+          .describe('The ID of the comment thread, from drive.getComments.'),
+        content: z
+          .string()
+          .trim()
+          .min(1)
+          .describe('The text of the reply, as plain text.'),
+      },
+    },
+    driveService.replyToComment,
+  );
+
+  registerTool(
+    'drive.resolveComment',
+    {
+      description:
+        'Resolves a comment thread on a Google Drive file (Docs, Sheets, Slides, etc.), the same as clicking Resolve in the Docs UI. It adds a reply that resolves the thread, with optional text. Get the comment ID from drive.getComments. Returns the ID of the resolving reply.',
+      inputSchema: {
+        fileId: z
+          .string()
+          .describe('The ID or URL of the file the comment is on.'),
+        commentId: z
+          .string()
+          .describe('The ID of the comment thread, from drive.getComments.'),
+        content: z
+          .string()
+          .optional()
+          .describe(
+            'Optional text to post with the resolution, such as what was changed.',
+          ),
+      },
+    },
+    driveService.resolveComment,
   );
 
   registerTool(
