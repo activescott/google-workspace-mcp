@@ -253,10 +253,12 @@ export class SheetsService {
     spreadsheetId,
     range,
     values,
+    valueInputOption = 'USER_ENTERED',
   }: {
     spreadsheetId: string;
     range: string;
     values: CellValue[][];
+    valueInputOption?: 'USER_ENTERED' | 'RAW';
   }) => {
     logToFile(
       `[SheetsService] Starting updateRange for spreadsheet: ${spreadsheetId}, range: ${range}`,
@@ -268,7 +270,7 @@ export class SheetsService {
       const response = await sheets.spreadsheets.values.update({
         spreadsheetId: id,
         range: range,
-        valueInputOption: 'RAW',
+        valueInputOption,
         requestBody: { range: range, majorDimension: 'ROWS', values: values },
       });
 
@@ -307,10 +309,12 @@ export class SheetsService {
     spreadsheetId,
     range,
     values,
+    valueInputOption = 'USER_ENTERED',
   }: {
     spreadsheetId: string;
     range: string;
     values: CellValue[][];
+    valueInputOption?: 'USER_ENTERED' | 'RAW';
   }) => {
     logToFile(
       `[SheetsService] Starting appendRows for spreadsheet: ${spreadsheetId}, range: ${range}`,
@@ -323,7 +327,7 @@ export class SheetsService {
       const response = await sheets.spreadsheets.values.append({
         spreadsheetId: id,
         range: range,
-        valueInputOption: 'RAW',
+        valueInputOption,
         insertDataOption: 'INSERT_ROWS',
         requestBody: { majorDimension: 'ROWS', values: values },
       });

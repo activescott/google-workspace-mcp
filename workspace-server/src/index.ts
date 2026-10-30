@@ -1133,14 +1133,21 @@ async function main() {
   const cellValues = z
     .array(z.array(z.union([z.string(), z.number(), z.boolean()])))
     .describe(
-      'Rows of cell values, e.g. [["Acme", "acme@example.com", 120]]. Values are written as-is (RAW): numbers and booleans are stored as such, but strings like "=SUM(A1:A3)" are stored as literal text, not evaluated as formulas.',
+      'Rows of cell values, e.g. [["Acme", "acme@example.com", 120]]. By default (valueInputOption USER_ENTERED) values are parsed as if typed into the UI: strings like "=SUM(A1:A3)" become formulas and "120" becomes a number.',
+    );
+
+  const valueInputOption = z
+    .enum(['USER_ENTERED', 'RAW'])
+    .optional()
+    .describe(
+      'How values are interpreted. USER_ENTERED (default) parses them as if typed into the UI, so formulas are evaluated and numeric strings become numbers. RAW stores strings as literal text.',
     );
 
   registerTool(
     'sheets.updateRange',
     {
       description:
-        'Writes values to a range in a Google Sheets spreadsheet, replacing what is there. Values are written as-is (RAW), so a string is stored as literal text rather than being evaluated as a formula.',
+        'Writes values to a range in a Google Sheets spreadsheet, replacing what is there. Values are parsed as if typed into the UI by default (formulas are evaluated); set valueInputOption to RAW to store strings as literal text.',
       inputSchema: {
         spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
         range: z
@@ -1149,6 +1156,7 @@ async function main() {
             'The A1 notation range to write (e.g., "Sheet1!A2:C3"). Writing starts at its top-left cell.',
           ),
         values: cellValues,
+        valueInputOption,
       },
     },
     sheetsService.updateRange,
@@ -1158,7 +1166,7 @@ async function main() {
     'sheets.appendRows',
     {
       description:
-        'Appends rows after the last row of a table in a Google Sheets spreadsheet, inserting new rows rather than overwriting. Values are written as-is (RAW), so a string is stored as literal text rather than being evaluated as a formula.',
+        'Appends rows after the last row of a table in a Google Sheets spreadsheet, inserting new rows rather than overwriting. Values are parsed as if typed into the UI by default (formulas are evaluated); set valueInputOption to RAW to store strings as literal text.',
       inputSchema: {
         spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
         range: z
@@ -1167,6 +1175,7 @@ async function main() {
             'An A1 notation range in the table to append to (e.g., "Sheet1!A1"). The rows go after the last row of the table it finds there.',
           ),
         values: cellValues,
+        valueInputOption,
       },
     },
     sheetsService.appendRows,

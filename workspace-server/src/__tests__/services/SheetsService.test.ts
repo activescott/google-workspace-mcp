@@ -377,7 +377,7 @@ describe('SheetsService', () => {
   });
 
   describe('updateRange', () => {
-    it('should write the values as RAW, not evaluated as formulas', async () => {
+    it('should default to USER_ENTERED so formulas are evaluated', async () => {
       mockSheetsAPI.spreadsheets.values.update.mockResolvedValue({
         data: {
           updatedRange: 'Vendors!A2:C2',
@@ -396,7 +396,7 @@ describe('SheetsService', () => {
       expect(mockSheetsAPI.spreadsheets.values.update).toHaveBeenCalledWith({
         spreadsheetId: 'test-id',
         range: 'Vendors!A2:C2',
-        valueInputOption: 'RAW',
+        valueInputOption: 'USER_ENTERED',
         requestBody: {
           range: 'Vendors!A2:C2',
           majorDimension: 'ROWS',
@@ -409,6 +409,21 @@ describe('SheetsService', () => {
         updatedColumns: 3,
         updatedCells: 3,
       });
+    });
+
+    it('should pass through an explicit RAW valueInputOption', async () => {
+      mockSheetsAPI.spreadsheets.values.update.mockResolvedValue({ data: {} });
+
+      await sheetsService.updateRange({
+        spreadsheetId: 'test-id',
+        range: 'A1',
+        values: [['=1+1']],
+        valueInputOption: 'RAW',
+      });
+
+      expect(mockSheetsAPI.spreadsheets.values.update).toHaveBeenCalledWith(
+        expect.objectContaining({ valueInputOption: 'RAW' }),
+      );
     });
 
     it('should handle errors gracefully', async () => {
@@ -429,7 +444,7 @@ describe('SheetsService', () => {
   });
 
   describe('appendRows', () => {
-    it('should insert rows after the table rather than overwrite, written as RAW', async () => {
+    it('should insert rows after the table rather than overwrite, as USER_ENTERED', async () => {
       mockSheetsAPI.spreadsheets.values.append.mockResolvedValue({
         data: {
           tableRange: 'Vendors!A1:C4',
@@ -454,7 +469,7 @@ describe('SheetsService', () => {
       expect(mockSheetsAPI.spreadsheets.values.append).toHaveBeenCalledWith({
         spreadsheetId: 'test-id',
         range: 'Vendors!A1',
-        valueInputOption: 'RAW',
+        valueInputOption: 'USER_ENTERED',
         insertDataOption: 'INSERT_ROWS',
         requestBody: {
           majorDimension: 'ROWS',
@@ -471,6 +486,21 @@ describe('SheetsService', () => {
         updatedColumns: 3,
         updatedCells: 6,
       });
+    });
+
+    it('should pass through an explicit RAW valueInputOption', async () => {
+      mockSheetsAPI.spreadsheets.values.append.mockResolvedValue({ data: {} });
+
+      await sheetsService.appendRows({
+        spreadsheetId: 'test-id',
+        range: 'A1',
+        values: [['=1+1']],
+        valueInputOption: 'RAW',
+      });
+
+      expect(mockSheetsAPI.spreadsheets.values.append).toHaveBeenCalledWith(
+        expect.objectContaining({ valueInputOption: 'RAW' }),
+      );
     });
 
     it('should handle errors gracefully', async () => {
