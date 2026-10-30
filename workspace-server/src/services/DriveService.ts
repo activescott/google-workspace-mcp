@@ -428,13 +428,20 @@ export class DriveService {
     try {
       const drive = await this.getDriveClient();
       const id = extractDocumentId(fileId);
-      const res = await drive.comments.list({
-        fileId: id,
-        fields:
-          'comments(id, content, author(displayName, emailAddress), createdTime, resolved, quotedFileContent(value), replies(id, content, author(displayName, emailAddress), createdTime, action))',
-      });
+      const comments: drive_v3.Schema$Comment[] = [];
+      let pageToken: string | undefined;
+      do {
+        const res = await drive.comments.list({
+          fileId: id,
+          pageSize: 100,
+          pageToken,
+          fields:
+            'nextPageToken, comments(id, content, author(displayName, emailAddress), createdTime, resolved, quotedFileContent(value), replies(id, content, author(displayName, emailAddress), createdTime, action))',
+        });
+        comments.push(...(res.data.comments || []));
+        pageToken = res.data.nextPageToken || undefined;
+      } while (pageToken);
 
-      const comments = res.data.comments || [];
       logToFile(
         `[DriveService] Found ${comments.length} comments for file: ${fileId}`,
       );
@@ -451,6 +458,81 @@ export class DriveService {
       return this.handleError('drive.getComments', error);
     }
   };
+
+  /**
+   * Adds a reply to a comment thread. With `resolve`, the reply also resolves
+   * the thread; Drive allows an empty reply in that case.
+   */
+  private _createReply = async (
+    context: string,
+    fileId: string,
+    commentId: string,
+    content: string | undefined,
+    resolve: boolean,
+  ) => {
+    logToFile(
+      `[DriveService] Starting ${context} for file: ${fileId}, comment: ${commentId}`,
+    );
+    try {
+      const drive = await this.getDriveClient();
+      const id = extractDocumentId(fileId);
+      const res = await drive.replies.create({
+        fileId: id,
+        commentId,
+        fields: 'id, content, createdTime, action',
+        requestBody: resolve
+          ? { action: 'resolve', ...(content ? { content } : {}) }
+          : { content },
+      });
+
+      logToFile(`[DriveService] Finished ${context} for file: ${id}`);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              fileId: id,
+              commentId,
+              replyId: res.data.id,
+              content: res.data.content,
+              createdTime: res.data.createdTime,
+              ...(resolve ? { resolved: true } : {}),
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      return this.handleError(context, error);
+    }
+  };
+
+  public replyToComment = async ({
+    fileId,
+    commentId,
+    content,
+  }: {
+    fileId: string;
+    commentId: string;
+    content: string;
+  }) =>
+    this._createReply(
+      'drive.replyToComment',
+      fileId,
+      commentId,
+      content,
+      false,
+    );
+
+  public resolveComment = async ({
+    fileId,
+    commentId,
+    content,
+  }: {
+    fileId: string;
+    commentId: string;
+    content?: string;
+  }) =>
+    this._createReply('drive.resolveComment', fileId, commentId, content, true);
 
   public moveFile = async ({
     fileId,

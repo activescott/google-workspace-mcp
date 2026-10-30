@@ -51,6 +51,72 @@ type DocsSuggestion =
   | DocsStyleChangeSuggestion
   | DocsParagraphStyleChangeSuggestion;
 
+// Docs API fields that googleapis 173 does not type yet. Names and enum values
+// come from the docs/v1 discovery document (revision 20261006). Drop these
+// once googleapis is upgraded to a version that includes them.
+type DocsRequest = docs_v1.Schema$Request & {
+  acceptSuggestion?: { suggestionId: string };
+  rejectSuggestion?: { suggestionId: string };
+  insertComment?: { content: string; range: docs_v1.Schema$Range };
+};
+
+interface DocsBatchUpdateRequest
+  extends docs_v1.Schema$BatchUpdateDocumentRequest {
+  requests: DocsRequest[];
+  writeControl?: docs_v1.Schema$WriteControl & {
+    writeMode?: 'EDIT' | 'SUGGEST';
+  };
+}
+
+interface DocsBatchUpdateResponse
+  extends docs_v1.Schema$BatchUpdateDocumentResponse {
+  replies?: (docs_v1.Schema$Response & {
+    insertComment?: {
+      commentThread?: {
+        commentId?: string | null;
+        plainTextQuote?: string | null;
+      };
+    };
+  })[];
+  suggestionResponses?: {
+    acceptedSuggestionIds?: string[] | null;
+    createdSuggestionIds?: string[] | null;
+    rejectedSuggestionIds?: string[] | null;
+  }[];
+  commentUpdateState?: string | null;
+}
+
+interface DocsStyledRun {
+  startIndex?: number;
+  endIndex?: number;
+  text: string;
+  bold?: true;
+  italic?: true;
+  underline?: true;
+  strikethrough?: true;
+  link?: string;
+}
+
+interface DocsParagraphStructure {
+  startIndex?: number;
+  endIndex?: number;
+  text: string;
+  namedStyle: string;
+  bullet?: { listId?: string; nestingLevel: number };
+  table?: { tableStartIndex?: number; row: number; column: number };
+  styledRuns?: DocsStyledRun[];
+}
+
+interface IndexedText {
+  text: string;
+  // indices[i] is the document index of text[i], in UTF-16 code units.
+  indices: number[];
+}
+
+// Stands in for non-text elements (chips, images) so a quote can't match
+// across them.
+const NON_TEXT_PLACEHOLDER = '\uFFFC';
+
 export class DocsService {
   /**
    * Recursively flattens a tab tree into a single array,
@@ -69,6 +135,44 @@ export class DocsService {
     const auth = await this.authManager.getAuthenticatedClient();
     const options = { ...gaxiosOptions, auth };
     return google.docs({ version: 'v1', ...options });
+  }
+
+  /**
+   * Sends a batchUpdate. With `suggest`, the edits are written as suggestions
+   * (writeControl.writeMode SUGGEST); without it the request is unchanged.
+   */
+  private async _batchUpdate(
+    docs: docs_v1.Docs,
+    documentId: string,
+    requests: DocsRequest[],
+    suggest = false,
+  ): Promise<DocsBatchUpdateResponse> {
+    const requestBody: DocsBatchUpdateRequest = suggest
+      ? { requests, writeControl: { writeMode: 'SUGGEST' } }
+      : { requests };
+    const res = await docs.documents.batchUpdate({ documentId, requestBody });
+    return (res?.data ?? {}) as DocsBatchUpdateResponse;
+  }
+
+  private _createdSuggestionIds(data: DocsBatchUpdateResponse): string[] {
+    return [
+      ...new Set(
+        (data.suggestionResponses ?? []).flatMap(
+          (r) => r.createdSuggestionIds ?? [],
+        ),
+      ),
+    ];
+  }
+
+  private _suggestionNote(
+    suggest: boolean,
+    data: DocsBatchUpdateResponse,
+  ): string {
+    if (!suggest) return '';
+    const ids = this._createdSuggestionIds(data);
+    return ids.length > 0
+      ? ` as suggestions (suggestion IDs: ${ids.join(', ')})`
+      : ' as suggestions';
   }
 
   public getSuggestions = async ({ documentId }: { documentId: string }) => {
@@ -282,28 +386,31 @@ export class DocsService {
     text,
     position = 'end',
     tabId,
+    suggest = false,
   }: {
     documentId: string;
     text: string;
     position?: string;
     tabId?: string;
+    suggest?: boolean;
   }) => {
     logToFile(
-      `[DocsService] Starting writeText for document: ${documentId}, position: ${position}, tabId: ${tabId}`,
+      `[DocsService] Starting writeText for document: ${documentId}, position: ${position}, tabId: ${tabId}, suggest: ${suggest}`,
     );
     try {
       const id = extractDocId(documentId) || documentId;
       const docs = await this.getDocsClient();
+      let result: DocsBatchUpdateResponse;
 
       // Optimize: when appending to the main body, omit location to skip
       // an extra documents.get API call — the Docs API auto-appends.
       if (position === 'end' && !tabId) {
-        await docs.documents.batchUpdate({
-          documentId: id,
-          requestBody: {
-            requests: [{ insertText: { text } }],
-          },
-        });
+        result = await this._batchUpdate(
+          docs,
+          id,
+          [{ insertText: { text } }],
+          suggest,
+        );
       } else {
         let index: number;
 
@@ -343,22 +450,22 @@ export class DocsService {
           }
         }
 
-        await docs.documents.batchUpdate({
-          documentId: id,
-          requestBody: {
-            requests: [
-              {
-                insertText: {
-                  location: {
-                    index,
-                    tabId: tabId,
-                  },
-                  text,
+        result = await this._batchUpdate(
+          docs,
+          id,
+          [
+            {
+              insertText: {
+                location: {
+                  index,
+                  tabId: tabId,
                 },
+                text,
               },
-            ],
-          },
-        });
+            },
+          ],
+          suggest,
+        );
       }
 
       logToFile(`[DocsService] Finished writeText for document: ${id}`);
@@ -366,7 +473,7 @@ export class DocsService {
         content: [
           {
             type: 'text' as const,
-            text: `Successfully wrote text to document ${id} at position ${position}`,
+            text: `Successfully wrote text to document ${id} at position ${position}${this._suggestionNote(suggest, result)}`,
           },
         ],
       };
@@ -402,10 +509,16 @@ export class DocsService {
     strikethrough: { strikethrough: true },
   };
 
+  private static readonly BULLET_PRESETS: Record<string, string> = {
+    bullets: 'BULLET_DISC_CIRCLE_SQUARE',
+    numberedlist: 'NUMBERED_DECIMAL_ALPHA_ROMAN',
+  };
+
   public formatText = async ({
     documentId,
     formats,
     tabId,
+    suggest = false,
   }: {
     documentId: string;
     formats: {
@@ -415,9 +528,10 @@ export class DocsService {
       url?: string;
     }[];
     tabId?: string;
+    suggest?: boolean;
   }) => {
     logToFile(
-      `[DocsService] Starting formatText for document: ${documentId}, ${formats.length} format(s)`,
+      `[DocsService] Starting formatText for document: ${documentId}, ${formats.length} format(s), suggest: ${suggest}`,
     );
     try {
       const id = extractDocId(documentId) || documentId;
@@ -454,6 +568,20 @@ export class DocsService {
               fields: Object.keys(textStyle).join(','),
             },
           });
+          continue;
+        }
+
+        const bulletPreset =
+          DocsService.BULLET_PRESETS[format.style.toLowerCase()];
+        if (bulletPreset) {
+          requests.push({
+            createParagraphBullets: { range, bulletPreset },
+          });
+          continue;
+        }
+
+        if (format.style.toLowerCase() === 'removebullets') {
+          requests.push({ deleteParagraphBullets: { range } });
           continue;
         }
 
@@ -502,10 +630,7 @@ export class DocsService {
       }
 
       const docs = await this.getDocsClient();
-      await docs.documents.batchUpdate({
-        documentId: id,
-        requestBody: { requests },
-      });
+      const result = await this._batchUpdate(docs, id, requests, suggest);
 
       logToFile(
         `[DocsService] Finished formatText for document: ${id}, applied ${requests.length} format(s)`,
@@ -514,7 +639,7 @@ export class DocsService {
         content: [
           {
             type: 'text' as const,
-            text: `Successfully applied ${requests.length} formatting change(s) to document ${id}`,
+            text: `Successfully applied ${requests.length} formatting change(s) to document ${id}${this._suggestionNote(suggest, result)}`,
           },
         ],
       };
@@ -699,6 +824,130 @@ export class DocsService {
     return text;
   }
 
+  public getStructure = async ({
+    documentId,
+    tabId,
+  }: {
+    documentId: string;
+    tabId?: string;
+  }) => {
+    logToFile(
+      `[DocsService] Starting getStructure for document: ${documentId}, tabId: ${tabId}`,
+    );
+    try {
+      const id = validateAndExtractDocId(documentId);
+      const docs = await this.getDocsClient();
+      // Inline suggestions, so the indices match the ones batchUpdate uses.
+      const res = await docs.documents.get({
+        documentId: id,
+        fields: `title,${TABS_FIELD_MASK}`,
+        includeTabsContent: true,
+        suggestionsViewMode: 'SUGGESTIONS_INLINE',
+      });
+
+      let tabs = this._flattenTabs(res.data.tabs || []);
+      if (tabId) {
+        tabs = tabs.filter((t) => t.tabProperties?.tabId === tabId);
+        if (tabs.length === 0) {
+          throw new Error(`Tab with ID ${tabId} not found.`);
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              title: res.data.title,
+              tabs: tabs.map((tab) => ({
+                tabId: tab.tabProperties?.tabId,
+                title: tab.tabProperties?.title,
+                paragraphs: this._paragraphStructure(
+                  tab.documentTab?.body?.content,
+                ),
+              })),
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      return this._errorResult('docs.getStructure', error);
+    }
+  };
+
+  private _paragraphStructure(
+    content: docs_v1.Schema$StructuralElement[] | undefined | null,
+    table?: DocsParagraphStructure['table'],
+    out: DocsParagraphStructure[] = [],
+  ): DocsParagraphStructure[] {
+    content?.forEach((element) => {
+      if (element.paragraph) {
+        const { paragraphStyle, bullet, elements } = element.paragraph;
+        const styledRuns: DocsStyledRun[] = [];
+        let text = '';
+        elements?.forEach((pElement) => {
+          const run = pElement.textRun;
+          if (!run?.content) {
+            text += NON_TEXT_PLACEHOLDER;
+            return;
+          }
+          text += run.content;
+          const style = run.textStyle;
+          const link = style?.link
+            ? (style.link.url ?? 'internal link')
+            : undefined;
+          if (
+            style?.bold ||
+            style?.italic ||
+            style?.underline ||
+            style?.strikethrough ||
+            link
+          ) {
+            styledRuns.push({
+              startIndex: pElement.startIndex ?? undefined,
+              endIndex: pElement.endIndex ?? undefined,
+              text: run.content,
+              ...(style?.bold && { bold: true }),
+              ...(style?.italic && { italic: true }),
+              ...(style?.underline && { underline: true }),
+              ...(style?.strikethrough && { strikethrough: true }),
+              ...(link && { link }),
+            });
+          }
+        });
+        out.push({
+          startIndex: element.startIndex ?? undefined,
+          endIndex: element.endIndex ?? undefined,
+          text,
+          namedStyle: paragraphStyle?.namedStyleType ?? 'NORMAL_TEXT',
+          ...(bullet && {
+            bullet: {
+              listId: bullet.listId ?? undefined,
+              nestingLevel: bullet.nestingLevel ?? 0,
+            },
+          }),
+          ...(table && { table }),
+          ...(styledRuns.length > 0 && { styledRuns }),
+        });
+      } else if (element.table) {
+        element.table.tableRows?.forEach((row, r) => {
+          row.tableCells?.forEach((cell, c) => {
+            this._paragraphStructure(
+              cell.content,
+              {
+                tableStartIndex: element.startIndex ?? undefined,
+                row: r,
+                column: c,
+              },
+              out,
+            );
+          });
+        });
+      }
+    });
+    return out;
+  }
+
   private _renderPersonChip(props: docs_v1.Schema$PersonProperties): string {
     const { name, email } = props;
     if (email) {
@@ -727,24 +976,28 @@ export class DocsService {
     findText,
     replaceText,
     tabId,
+    suggest = false,
   }: {
     documentId: string;
     findText: string;
     replaceText: string;
     tabId?: string;
+    suggest?: boolean;
   }) => {
     logToFile(
-      `[DocsService] Starting replaceText for document: ${documentId}, tabId: ${tabId}`,
+      `[DocsService] Starting replaceText for document: ${documentId}, tabId: ${tabId}, suggest: ${suggest}`,
     );
     try {
       const id = extractDocId(documentId) || documentId;
       const docs = await this.getDocsClient();
 
-      // Get the document to find where the text will be replaced
+      // Get the document to find where the text will be replaced.
+      // Suggestions must be computed against the inline-suggestions view.
       const docBefore = await docs.documents.get({
         documentId: id,
         fields: TABS_FIELD_MASK,
         includeTabsContent: true,
+        ...(suggest && { suggestionsViewMode: 'SUGGESTIONS_INLINE' }),
       });
 
       const tabs = this._flattenTabs(docBefore.data.tabs || []);
@@ -780,13 +1033,9 @@ export class DocsService {
         }
       }
 
+      let result: DocsBatchUpdateResponse = {};
       if (requests.length > 0) {
-        await docs.documents.batchUpdate({
-          documentId: id,
-          requestBody: {
-            requests,
-          },
-        });
+        result = await this._batchUpdate(docs, id, requests, suggest);
       }
 
       logToFile(`[DocsService] Finished replaceText for document: ${id}`);
@@ -794,7 +1043,7 @@ export class DocsService {
         content: [
           {
             type: 'text' as const,
-            text: `Successfully replaced text in document ${id}`,
+            text: `Successfully replaced text in document ${id}${this._suggestionNote(suggest, result)}`,
           },
         ],
       };
@@ -872,5 +1121,213 @@ export class DocsService {
       });
     }
     return text;
+  }
+
+  /**
+   * Flattens body text and records the document index of every character,
+   * so a match in the text maps back to an exact document range.
+   */
+  private _indexText(
+    content: docs_v1.Schema$StructuralElement[] | undefined | null,
+    out: IndexedText = { text: '', indices: [] },
+  ): IndexedText {
+    content?.forEach((element) => {
+      if (element.paragraph) {
+        element.paragraph.elements?.forEach((pElement) => {
+          const run = pElement.textRun?.content;
+          if (run && pElement.startIndex != null) {
+            for (let i = 0; i < run.length; i++) {
+              out.text += run[i];
+              out.indices.push(pElement.startIndex + i);
+            }
+          } else {
+            out.text += NON_TEXT_PLACEHOLDER;
+            out.indices.push(pElement.startIndex ?? -1);
+          }
+        });
+      } else if (element.table) {
+        element.table.tableRows?.forEach((row) => {
+          row.tableCells?.forEach((cell) => {
+            this._indexText(cell.content, out);
+          });
+        });
+      }
+    });
+    return out;
+  }
+
+  private _errorResult(tool: string, error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logToFile(`[DocsService] Error during ${tool}: ${errorMessage}`);
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({ error: errorMessage }),
+        },
+      ],
+    };
+  }
+
+  public addComment = async ({
+    documentId,
+    content,
+    quotedText,
+    occurrence = 1,
+    startIndex,
+    endIndex,
+    tabId,
+  }: {
+    documentId: string;
+    content: string;
+    quotedText?: string;
+    occurrence?: number;
+    startIndex?: number;
+    endIndex?: number;
+    tabId?: string;
+  }) => {
+    logToFile(
+      `[DocsService] Starting addComment for document: ${documentId}, tabId: ${tabId}`,
+    );
+    try {
+      if (!content.trim()) {
+        throw new Error(
+          'Comment content is empty, so no comment was added. Pass the comment text in content.',
+        );
+      }
+      const id = extractDocId(documentId) || documentId;
+      const docs = await this.getDocsClient();
+
+      let range: docs_v1.Schema$Range;
+      if (quotedText) {
+        const res = await docs.documents.get({
+          documentId: id,
+          fields: TABS_FIELD_MASK,
+          includeTabsContent: true,
+          suggestionsViewMode: 'SUGGESTIONS_INLINE',
+        });
+        const tabs = this._flattenTabs(res.data.tabs || []);
+        const tab = tabId
+          ? tabs.find((t) => t.tabProperties?.tabId === tabId)
+          : tabs[0];
+        if (!tab) {
+          throw new Error(
+            tabId ? `Tab with ID ${tabId} not found.` : 'Document has no tabs.',
+          );
+        }
+
+        const { text, indices } = this._indexText(
+          tab.documentTab?.body?.content,
+        );
+        let pos = -1;
+        for (let n = 0; n < occurrence; n++) {
+          pos = text.indexOf(quotedText, pos + 1);
+          if (pos === -1) break;
+        }
+        if (pos === -1) {
+          throw new Error(
+            `Could not find occurrence ${occurrence} of the quoted text in the document body. The quote must match the body text exactly and cannot span a smart chip, image or table cell boundary. No comment was added. Copy the passage from docs.getText, or pass startIndex and endIndex instead.`,
+          );
+        }
+        range = {
+          startIndex: indices[pos],
+          endIndex: indices[pos + quotedText.length - 1] + 1,
+          tabId,
+        };
+      } else if (startIndex !== undefined && endIndex !== undefined) {
+        range = { startIndex, endIndex, tabId };
+      } else {
+        throw new Error(
+          'Provide quotedText, or both startIndex and endIndex. The Docs API anchors every comment to a range of text.',
+        );
+      }
+
+      const result = await this._batchUpdate(docs, id, [
+        { insertComment: { content, range } },
+      ]);
+      if (result.commentUpdateState === 'ALL_FAILED_UNKNOWN_REASON') {
+        throw new Error(
+          'The Docs API reported that the comment was not saved. Check that you can comment on this document, then retry.',
+        );
+      }
+      const thread = result.replies?.[0]?.insertComment?.commentThread;
+
+      logToFile(`[DocsService] Finished addComment for document: ${id}`);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              documentId: id,
+              commentId: thread?.commentId,
+              quotedText: thread?.plainTextQuote ?? quotedText,
+              startIndex: range.startIndex,
+              endIndex: range.endIndex,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      return this._errorResult('docs.addComment', error);
+    }
+  };
+
+  public acceptSuggestion = async ({
+    documentId,
+    suggestionId,
+  }: {
+    documentId: string;
+    suggestionId: string;
+  }) => this._resolveSuggestion('accept', documentId, suggestionId);
+
+  public rejectSuggestion = async ({
+    documentId,
+    suggestionId,
+  }: {
+    documentId: string;
+    suggestionId: string;
+  }) => this._resolveSuggestion('reject', documentId, suggestionId);
+
+  private async _resolveSuggestion(
+    action: 'accept' | 'reject',
+    documentId: string,
+    suggestionId: string,
+  ) {
+    logToFile(
+      `[DocsService] Starting ${action}Suggestion for document: ${documentId}, suggestionId: ${suggestionId}`,
+    );
+    try {
+      const id = extractDocId(documentId) || documentId;
+      const docs = await this.getDocsClient();
+      const request: DocsRequest =
+        action === 'accept'
+          ? { acceptSuggestion: { suggestionId } }
+          : { rejectSuggestion: { suggestionId } };
+      const result = await this._batchUpdate(docs, id, [request]);
+      const response = result.suggestionResponses?.[0];
+      const resolvedIds =
+        (action === 'accept'
+          ? response?.acceptedSuggestionIds
+          : response?.rejectedSuggestionIds) ?? [];
+
+      logToFile(
+        `[DocsService] Finished ${action}Suggestion for document: ${id}`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              documentId: id,
+              suggestionId,
+              [`${action}edSuggestionIds`]: resolvedIds,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      return this._errorResult(`docs.${action}Suggestion`, error);
+    }
   }
 }

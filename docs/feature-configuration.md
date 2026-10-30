@@ -111,6 +111,7 @@ When a feature group is disabled:
 
 - `docs.getSuggestions`
 - `docs.getText`
+- `docs.getStructure`
 
 ### `docs.write`
 
@@ -118,6 +119,9 @@ When a feature group is disabled:
 - `docs.writeText`
 - `docs.replaceText`
 - `docs.formatText`
+- `docs.addComment`
+- `docs.acceptSuggestion`
+- `docs.rejectSuggestion`
 
 ### `drive.read`
 
@@ -132,6 +136,8 @@ When a feature group is disabled:
 - `drive.moveFile`
 - `drive.trashFile`
 - `drive.renameFile`
+- `drive.replyToComment`
+- `drive.resolveComment`
 
 ### `calendar.read`
 
