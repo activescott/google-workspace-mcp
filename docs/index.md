@@ -77,6 +77,7 @@ to write the edit as a suggestion instead of editing directly.
 - `drive.findFolder`: Finds a folder by name in Google Drive.
 - `drive.createFolder`: Creates a new folder in Google Drive.
 - `drive.downloadFile`: Downloads a file from Google Drive to a local path.
+- `drive.uploadFile`: Uploads a local file (absolute path) to Google Drive.
 - `drive.trashFile`: Moves a file or folder to the trash in Google Drive.
 - `drive.renameFile`: Renames a file or folder in Google Drive.
 - `drive.getComments`: Retrieves every comment on a file, with the quoted text

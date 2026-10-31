@@ -13,6 +13,10 @@ import { extractDocumentId } from '../utils/validation';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PROJECT_ROOT } from '../utils/paths';
+import { getMimeTypeFromExtension } from '../utils/mimeTypes';
+
+// Maximum size of a local file accepted by drive.uploadFile.
+const MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024;
 
 const MIN_DRIVE_ID_LENGTH = 25;
 
@@ -533,6 +537,76 @@ export class DriveService {
     content?: string;
   }) =>
     this._createReply('drive.resolveComment', fileId, commentId, content, true);
+
+  public uploadFile = async ({
+    filePath,
+    name,
+    parentFolderId,
+    mimeType,
+  }: {
+    filePath: string;
+    name?: string;
+    parentFolderId?: string;
+    mimeType?: string;
+  }) => {
+    logToFile(`Uploading local file to Drive: ${filePath}`);
+    try {
+      if (!path.isAbsolute(filePath)) {
+        throw new Error(`filePath must be an absolute path: ${filePath}`);
+      }
+
+      let stats;
+      try {
+        stats = await fs.promises.stat(filePath);
+      } catch (statError) {
+        throw new Error(
+          `Could not access file ${filePath}: ${statError instanceof Error ? statError.message : String(statError)}`,
+        );
+      }
+      if (!stats.isFile()) {
+        throw new Error(`Path is not a file: ${filePath}`);
+      }
+      if (stats.size > MAX_UPLOAD_SIZE_BYTES) {
+        throw new Error(
+          `File size (${(stats.size / 1024 / 1024).toFixed(2)}MB) exceeds the maximum allowed limit of ${MAX_UPLOAD_SIZE_BYTES / 1024 / 1024}MB.`,
+        );
+      }
+
+      const drive = await this.getDriveClient();
+      // `||` so empty strings fall back to the defaults.
+      const fileName = name || path.basename(filePath);
+      const contentType = mimeType || getMimeTypeFromExtension(filePath);
+      const requestBody: drive_v3.Schema$File = { name: fileName };
+      if (parentFolderId) {
+        requestBody.parents = [parentFolderId];
+      }
+
+      const file = await drive.files.create({
+        requestBody,
+        media: { mimeType: contentType, body: fs.createReadStream(filePath) },
+        fields: 'id, name, mimeType, webViewLink',
+        supportsAllDrives: true,
+      });
+
+      logToFile(`Uploaded file: ${file.data.name} (${file.data.id})`);
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              id: file.data.id,
+              name: file.data.name,
+              mimeType: file.data.mimeType,
+              webViewLink: file.data.webViewLink,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      return this.handleError('drive.uploadFile', error);
+    }
+  };
 
   public moveFile = async ({
     fileId,

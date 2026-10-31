@@ -27,7 +27,9 @@ jest.mock('node:fs', () => {
       ...actualFs.promises,
       mkdir: jest.fn(),
       writeFile: jest.fn(),
+      stat: jest.fn(),
     },
+    createReadStream: jest.fn(),
     existsSync: jest.fn(),
     writeFileSync: jest.fn(),
     mkdirSync: jest.fn(),
@@ -216,6 +218,93 @@ describe('DriveService', () => {
       expect(JSON.parse(result.content[0].text)).toEqual({
         error: 'API request failed',
       });
+    });
+  });
+
+  describe('uploadFile', () => {
+    const stat = fs.promises.stat as unknown as jest.Mock<any>;
+    const createReadStream = fs.createReadStream as unknown as jest.Mock<any>;
+
+    beforeEach(() => {
+      stat.mockReset();
+      createReadStream.mockReset();
+      stat.mockResolvedValue({ isFile: () => true, size: 1024 });
+      createReadStream.mockReturnValue('stream');
+    });
+
+    it('uploads a file with defaults derived from the path', async () => {
+      const created = {
+        id: 'f1',
+        name: 'report.pdf',
+        mimeType: 'application/pdf',
+        webViewLink: 'https://drive.google.com/file/d/f1/view',
+      };
+      mockDriveAPI.files.create.mockResolvedValue({ data: created });
+
+      const result = await driveService.uploadFile({
+        filePath: '/tmp/report.pdf',
+      });
+
+      expect(mockDriveAPI.files.create).toHaveBeenCalledWith({
+        requestBody: { name: 'report.pdf' },
+        media: { mimeType: 'application/pdf', body: 'stream' },
+        fields: 'id, name, mimeType, webViewLink',
+        supportsAllDrives: true,
+      });
+      expect(JSON.parse(result.content[0].text)).toEqual(created);
+    });
+
+    it('honors name, parentFolderId and mimeType', async () => {
+      mockDriveAPI.files.create.mockResolvedValue({ data: { id: 'f2' } });
+
+      await driveService.uploadFile({
+        filePath: '/tmp/blob.bin',
+        name: 'Custom',
+        parentFolderId: 'folder1',
+        mimeType: 'text/plain',
+      });
+
+      expect(mockDriveAPI.files.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestBody: { name: 'Custom', parents: ['folder1'] },
+          media: { mimeType: 'text/plain', body: 'stream' },
+        }),
+      );
+    });
+
+    it('rejects relative paths', async () => {
+      const result = await driveService.uploadFile({ filePath: 'rel/a.txt' });
+      expect(JSON.parse(result.content[0].text).error).toMatch(/absolute/);
+      expect(mockDriveAPI.files.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects missing files', async () => {
+      stat.mockRejectedValue(new Error('ENOENT'));
+      const result = await driveService.uploadFile({ filePath: '/tmp/x' });
+      expect(JSON.parse(result.content[0].text).error).toMatch(
+        /Could not access file \/tmp\/x: ENOENT/,
+      );
+    });
+
+    it('rejects non-files', async () => {
+      stat.mockResolvedValue({ isFile: () => false, size: 0 });
+      const result = await driveService.uploadFile({ filePath: '/tmp' });
+      expect(JSON.parse(result.content[0].text).error).toMatch(/not a file/);
+    });
+
+    it('rejects files over the size cap', async () => {
+      stat.mockResolvedValue({ isFile: () => true, size: 51 * 1024 * 1024 });
+      const result = await driveService.uploadFile({ filePath: '/tmp/big' });
+      expect(JSON.parse(result.content[0].text).error).toMatch(
+        /exceeds the maximum/,
+      );
+      expect(mockDriveAPI.files.create).not.toHaveBeenCalled();
+    });
+
+    it('returns API errors', async () => {
+      mockDriveAPI.files.create.mockRejectedValue(new Error('boom'));
+      const result = await driveService.uploadFile({ filePath: '/tmp/a.txt' });
+      expect(JSON.parse(result.content[0].text)).toEqual({ error: 'boom' });
     });
   });
 
