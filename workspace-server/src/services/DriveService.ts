@@ -594,10 +594,15 @@ export class DriveService {
       }
       claimedPath = claiming;
 
-      // O_NOFOLLOW: a symlink planted in the store is refused, not followed.
+      // A symlink planted in the store is refused, not followed: lstat for
+      // every platform (the claimed name is ours alone), and O_NOFOLLOW where
+      // the platform has it.
+      if (!(await fs.promises.lstat(claimedPath)).isFile()) {
+        throw new Error(`Upload is not a file: ${uploadId}`);
+      }
       const handle = await fs.promises.open(
         claimedPath,
-        fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+        fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0),
       );
       try {
         const stats = await handle.stat();
