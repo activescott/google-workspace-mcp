@@ -5,18 +5,27 @@
  */
 
 import { google, drive_v3 } from 'googleapis';
+import { z } from 'zod';
 import { AuthManager } from '../auth/AuthManager';
 import { logToFile } from '../utils/logger';
 import { gaxiosOptions } from '../utils/GaxiosConfig';
 import { escapeQueryString } from '../utils/DriveQueryBuilder';
-import { extractDocumentId } from '../utils/validation';
+import { driveUploadFileSchema, extractDocumentId } from '../utils/validation';
+import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PROJECT_ROOT } from '../utils/paths';
 import { getMimeTypeFromExtension } from '../utils/mimeTypes';
 
-// Maximum size of a local file accepted by drive.uploadFile.
+// Maximum size of an upload accepted by drive.uploadFile.
 const MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024;
+
+// The directory the mcp-gateway's upload store keeps its files in, and the
+// IDs it names them by (`upl_` and 16 random bytes in hex).
+const UPLOADS_DIR_ENV_VAR = 'WORKSPACE_UPLOADS_DIR';
+const UPLOAD_ID_PATTERN = /^upl_[0-9a-f]{32}$/;
+
+type DriveUploadFileInput = z.infer<typeof driveUploadFileSchema>;
 
 const MIN_DRIVE_ID_LENGTH = 25;
 
@@ -538,73 +547,111 @@ export class DriveService {
   }) =>
     this._createReply('drive.resolveComment', fileId, commentId, content, true);
 
+  /**
+   * Uploads a file from the mcp-gateway's upload store (POST /uploads), the
+   * store Gmail attachments come from. The store keeps each upload as a file
+   * named by its ID in one directory, given here as WORKSPACE_UPLOADS_DIR.
+   * The ID is checked against the store's format before it is joined to that
+   * directory, so no input names any other file. Claiming the upload is a
+   * rename, which only one call can win, and the file is deleted afterwards,
+   * so an upload is used once whatever happens to the Drive call.
+   */
   public uploadFile = async ({
-    filePath,
+    uploadId,
     name,
     parentFolderId,
     mimeType,
-  }: {
-    filePath: string;
-    name?: string;
-    parentFolderId?: string;
-    mimeType?: string;
-  }) => {
-    logToFile(`Uploading local file to Drive: ${filePath}`);
+  }: DriveUploadFileInput) => {
+    logToFile(`Uploading ${uploadId} to Drive`);
+    let claimedPath: string | undefined;
     try {
-      if (!path.isAbsolute(filePath)) {
-        throw new Error(`filePath must be an absolute path: ${filePath}`);
+      const uploadsDir = process.env[UPLOADS_DIR_ENV_VAR];
+      if (!uploadsDir) {
+        throw new Error(
+          `drive.uploadFile needs the mcp-gateway upload store: ${UPLOADS_DIR_ENV_VAR} is not set.`,
+        );
+      }
+      if (!name) {
+        throw new Error(
+          'name is required: the filename given at upload was not passed on.',
+        );
+      }
+      if (!UPLOAD_ID_PATTERN.test(uploadId)) {
+        throw new Error(`Unknown or already used uploadId: ${uploadId}`);
       }
 
-      let stats;
+      const claiming = path.join(
+        uploadsDir,
+        `${uploadId}.claimed-${randomBytes(8).toString('hex')}`,
+      );
       try {
-        stats = await fs.promises.stat(filePath);
-      } catch (statError) {
-        throw new Error(
-          `Could not access file ${filePath}: ${statError instanceof Error ? statError.message : String(statError)}`,
-        );
+        await fs.promises.rename(path.join(uploadsDir, uploadId), claiming);
+      } catch (renameError) {
+        if ((renameError as NodeJS.ErrnoException).code === 'ENOENT') {
+          throw new Error(`Unknown or already used uploadId: ${uploadId}`);
+        }
+        throw renameError;
       }
-      if (!stats.isFile()) {
-        throw new Error(`Path is not a file: ${filePath}`);
-      }
-      if (stats.size > MAX_UPLOAD_SIZE_BYTES) {
-        throw new Error(
-          `File size (${(stats.size / 1024 / 1024).toFixed(2)}MB) exceeds the maximum allowed limit of ${MAX_UPLOAD_SIZE_BYTES / 1024 / 1024}MB.`,
-        );
-      }
+      claimedPath = claiming;
 
-      const drive = await this.getDriveClient();
-      // `||` so empty strings fall back to the defaults.
-      const fileName = name || path.basename(filePath);
-      const contentType = mimeType || getMimeTypeFromExtension(filePath);
-      const requestBody: drive_v3.Schema$File = { name: fileName };
-      if (parentFolderId) {
-        requestBody.parents = [parentFolderId];
-      }
+      // O_NOFOLLOW: a symlink planted in the store is refused, not followed.
+      const handle = await fs.promises.open(
+        claimedPath,
+        fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+      );
+      try {
+        const stats = await handle.stat();
+        if (!stats.isFile()) {
+          throw new Error(`Upload is not a file: ${uploadId}`);
+        }
+        if (stats.size > MAX_UPLOAD_SIZE_BYTES) {
+          throw new Error(
+            `File size (${(stats.size / 1024 / 1024).toFixed(2)}MB) exceeds the maximum allowed limit of ${MAX_UPLOAD_SIZE_BYTES / 1024 / 1024}MB.`,
+          );
+        }
 
-      const file = await drive.files.create({
-        requestBody,
-        media: { mimeType: contentType, body: fs.createReadStream(filePath) },
-        fields: 'id, name, mimeType, webViewLink',
-        supportsAllDrives: true,
-      });
+        const drive = await this.getDriveClient();
+        // `||` so an empty mimeType falls back to the default.
+        const contentType = mimeType || getMimeTypeFromExtension(name);
+        const requestBody: drive_v3.Schema$File = { name };
+        if (parentFolderId) {
+          requestBody.parents = [parentFolderId];
+        }
 
-      logToFile(`Uploaded file: ${file.data.name} (${file.data.id})`);
-
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              id: file.data.id,
-              name: file.data.name,
-              mimeType: file.data.mimeType,
-              webViewLink: file.data.webViewLink,
-            }),
+        const file = await drive.files.create({
+          requestBody,
+          media: {
+            mimeType: contentType,
+            body: handle.createReadStream({ autoClose: false }),
           },
-        ],
-      };
+          fields: 'id, name, mimeType, webViewLink',
+          supportsAllDrives: true,
+        });
+
+        logToFile(`Uploaded file: ${file.data.name} (${file.data.id})`);
+
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                id: file.data.id,
+                name: file.data.name,
+                mimeType: file.data.mimeType,
+                webViewLink: file.data.webViewLink,
+              }),
+            },
+          ],
+        };
+      } finally {
+        await handle.close();
+      }
     } catch (error) {
       return this.handleError('drive.uploadFile', error);
+    } finally {
+      if (claimedPath) {
+        await fs.promises.rm(claimedPath, { force: true });
+      }
     }
   };
 

@@ -62,6 +62,37 @@ export const gmailAttachmentSchema = z.object({
 });
 
 /**
+ * drive.uploadFile input, shared by the MCP tool schema (index.ts) and
+ * DriveService. The file is named by an upload ID, never by a path: the
+ * server only reads the upload store's own files (see DriveService.uploadFile).
+ */
+export const driveUploadFileSchema = z.object({
+  uploadId: z
+    .string()
+    .describe(
+      'The uploadId that POST /uploads on the mcp-gateway answered with. An upload is used once.',
+    ),
+  name: z
+    .string()
+    .optional()
+    .describe(
+      'Name for the file in Drive. Defaults to the filename given at upload.',
+    ),
+  parentFolderId: z
+    .string()
+    .optional()
+    .describe(
+      'The ID of the folder to upload into. Defaults to the root of My Drive.',
+    ),
+  mimeType: z
+    .string()
+    .optional()
+    .describe(
+      'MIME type of the file (e.g., "application/pdf"). Inferred from the name\'s extension when omitted; falls back to "application/octet-stream".',
+    ),
+});
+
+/**
  * ISO 8601 datetime validation schema
  * Accepts formats like:
  * - 2024-01-15T10:30:00Z

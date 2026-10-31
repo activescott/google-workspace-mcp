@@ -77,7 +77,12 @@ to write the edit as a suggestion instead of editing directly.
 - `drive.findFolder`: Finds a folder by name in Google Drive.
 - `drive.createFolder`: Creates a new folder in Google Drive.
 - `drive.downloadFile`: Downloads a file from Google Drive to a local path.
-- `drive.uploadFile`: Uploads a local file (absolute path) to Google Drive.
+- `drive.uploadFile`: Uploads a file from the mcp-gateway's upload store to
+  Google Drive, named by the `uploadId` that `POST /uploads` answered with. It
+  takes no file path. An upload is used once. The server reads the upload from
+  the directory in `WORKSPACE_UPLOADS_DIR`, and the tool returns an error when
+  that is unset. It needs `name`, which the gateway fills in with the filename
+  given at upload.
 - `drive.trashFile`: Moves a file or folder to the trash in Google Drive.
 - `drive.renameFile`: Renames a file or folder in Google Drive.
 - `drive.getComments`: Retrieves every comment on a file, with the quoted text

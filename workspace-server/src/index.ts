@@ -9,7 +9,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import * as path from 'node:path';
 import { AuthManager } from './auth/AuthManager';
 import { DocsService } from './services/DocsService';
 import { DriveService } from './services/DriveService';
@@ -47,7 +46,10 @@ import {
 import { SheetsService } from './services/SheetsService';
 import { TasksService } from './services/TasksService';
 import { GMAIL_SEARCH_MAX_RESULTS } from './utils/constants';
-import { gmailAttachmentSchema } from './utils/validation';
+import {
+  driveUploadFileSchema,
+  gmailAttachmentSchema,
+} from './utils/validation';
 
 import { setLoggingEnabled, logToFile } from './utils/logger';
 import { applyToolNameNormalization } from './utils/tool-normalization';
@@ -1521,35 +1523,8 @@ async function main() {
     'drive.uploadFile',
     {
       description:
-        'Uploads a local file to Google Drive as a new file, without converting it to a Google Doc/Sheet/Slide. Returns the new file id, name, mimeType and webViewLink.',
-      inputSchema: {
-        filePath: z
-          .string()
-          .refine((p) => path.isAbsolute(p), {
-            message: 'filePath must be an absolute path',
-          })
-          .describe(
-            'Absolute local filesystem path of the file to upload (e.g., "/Users/name/downloads/report.pdf").',
-          ),
-        name: z
-          .string()
-          .optional()
-          .describe(
-            'Name for the file in Drive. Defaults to the filename portion of filePath.',
-          ),
-        parentFolderId: z
-          .string()
-          .optional()
-          .describe(
-            'The ID of the folder to upload into. Defaults to the root of My Drive.',
-          ),
-        mimeType: z
-          .string()
-          .optional()
-          .describe(
-            'MIME type of the file (e.g., "application/pdf"). Inferred from the file extension when omitted; falls back to "application/octet-stream".',
-          ),
-      },
+        'Uploads a file from the mcp-gateway upload store (POST /uploads) to Google Drive as a new file, without converting it to a Google Doc/Sheet/Slide. Returns the new file id, name, mimeType and webViewLink.',
+      inputSchema: driveUploadFileSchema.shape,
     },
     driveService.uploadFile,
   );
