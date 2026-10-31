@@ -16,6 +16,7 @@ import {
   GMAIL_BATCH_MODIFY_MAX_IDS,
   GMAIL_NO_LABEL_CHANGES_MESSAGE,
 } from '../utils/constants';
+import { getMimeTypeFromExtension } from '../utils/mimeTypes';
 import { gaxiosOptions } from '../utils/GaxiosConfig';
 import { emailArraySchema, gmailAttachmentSchema } from '../utils/validation';
 import { createStructuredResponse } from '../utils/structured-response';
@@ -33,33 +34,6 @@ import {
 } from './gmail-schemas';
 import { z, ZodError } from 'zod';
 
-// Extension to MIME type map for common file types
-const EXTENSION_MIME_MAP: Record<string, string> = {
-  '.pdf': 'application/pdf',
-  '.doc': 'application/msword',
-  '.docx':
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.xls': 'application/vnd.ms-excel',
-  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  '.ppt': 'application/vnd.ms-powerpoint',
-  '.pptx':
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  '.txt': 'text/plain',
-  '.csv': 'text/csv',
-  '.html': 'text/html',
-  '.htm': 'text/html',
-  '.json': 'application/json',
-  '.xml': 'application/xml',
-  '.zip': 'application/zip',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
-  '.mp4': 'video/mp4',
-  '.mp3': 'audio/mpeg',
-};
-
 // Maximum total raw (pre-encoding) size for all attachments, checked against
 // the bytes on disk. Gmail's 25MB limit applies to the entire MIME message,
 // and base64 encoding inflates binary data by ~33%: 18MB of raw bytes becomes
@@ -73,11 +47,6 @@ function assertWithinAttachmentSizeLimit(totalSize: number): void {
       `Total attachment size (${(totalSize / 1024 / 1024).toFixed(2)}MB) exceeds the maximum allowed limit of ${MAX_TOTAL_ATTACHMENT_SIZE_BYTES / 1024 / 1024}MB.`,
     );
   }
-}
-
-function getMimeTypeFromExtension(filePath: string): string {
-  const ext = path.extname(filePath).toLowerCase();
-  return EXTENSION_MIME_MAP[ext] ?? 'application/octet-stream';
 }
 
 // Derived from the shared zod schema (also used for the MCP tool input in
