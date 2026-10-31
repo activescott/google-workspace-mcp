@@ -1133,14 +1133,21 @@ async function main() {
   const cellValues = z
     .array(z.array(z.union([z.string(), z.number(), z.boolean()])))
     .describe(
-      'Rows of cell values, e.g. [["Acme", "acme@example.com", 120]]. Values are written as-is (RAW): numbers and booleans are stored as such, but strings like "=SUM(A1:A3)" are stored as literal text, not evaluated as formulas.',
+      'Rows of cell values, e.g. [["Acme", "acme@example.com", 120]]. By default (valueInputOption USER_ENTERED) values are parsed as if typed into the UI: strings like "=SUM(A1:A3)" become formulas and "120" becomes a number.',
+    );
+
+  const valueInputOption = z
+    .enum(['USER_ENTERED', 'RAW'])
+    .optional()
+    .describe(
+      'How values are interpreted. USER_ENTERED (default) parses them as if typed into the UI, so formulas are evaluated and numeric strings become numbers. RAW stores strings as literal text.',
     );
 
   registerTool(
     'sheets.updateRange',
     {
       description:
-        'Writes values to a range in a Google Sheets spreadsheet, replacing what is there. Values are written as-is (RAW), so a string is stored as literal text rather than being evaluated as a formula.',
+        'Writes values to a range in a Google Sheets spreadsheet, replacing what is there. Values are parsed as if typed into the UI by default (formulas are evaluated); set valueInputOption to RAW to store strings as literal text.',
       inputSchema: {
         spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
         range: z
@@ -1149,6 +1156,7 @@ async function main() {
             'The A1 notation range to write (e.g., "Sheet1!A2:C3"). Writing starts at its top-left cell.',
           ),
         values: cellValues,
+        valueInputOption,
       },
     },
     sheetsService.updateRange,
@@ -1158,7 +1166,7 @@ async function main() {
     'sheets.appendRows',
     {
       description:
-        'Appends rows after the last row of a table in a Google Sheets spreadsheet, inserting new rows rather than overwriting. Values are written as-is (RAW), so a string is stored as literal text rather than being evaluated as a formula.',
+        'Appends rows after the last row of a table in a Google Sheets spreadsheet, inserting new rows rather than overwriting. Values are parsed as if typed into the UI by default (formulas are evaluated); set valueInputOption to RAW to store strings as literal text.',
       inputSchema: {
         spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
         range: z
@@ -1167,9 +1175,290 @@ async function main() {
             'An A1 notation range in the table to append to (e.g., "Sheet1!A1"). The rows go after the last row of the table it finds there.',
           ),
         values: cellValues,
+        valueInputOption,
       },
     },
     sheetsService.appendRows,
+  );
+
+  const sheetIdSchema = z
+    .number()
+    .int()
+    .describe(
+      'The numeric sheetId of the tab (from sheets.getMetadata or sheets.addSheet), not its title.',
+    );
+
+  registerTool(
+    'sheets.addSheet',
+    {
+      description:
+        "Adds a new tab to a Google Sheets spreadsheet. Returns the new tab's sheetId and title. Fails if a tab with that title already exists.",
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        title: z.string().min(1).describe('The title of the new tab.'),
+        index: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('Zero-based position of the tab (default: the end).'),
+        rowCount: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe('Number of rows in the new tab (default: 1000).'),
+        columnCount: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe('Number of columns in the new tab (default: 26).'),
+      },
+    },
+    sheetsService.addSheet,
+  );
+
+  registerTool(
+    'sheets.deleteSheet',
+    {
+      description:
+        'Deletes a tab, and all its data, from a Google Sheets spreadsheet. A spreadsheet must keep at least one tab.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+      },
+    },
+    sheetsService.deleteSheet,
+  );
+
+  registerTool(
+    'sheets.renameSheet',
+    {
+      description:
+        'Renames a tab in a Google Sheets spreadsheet. Fails if another tab already has that title.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        title: z.string().min(1).describe('The new title of the tab.'),
+      },
+    },
+    sheetsService.renameSheet,
+  );
+
+  registerTool(
+    'sheets.updateSheetProperties',
+    {
+      description:
+        'Updates properties of a tab in a Google Sheets spreadsheet: position, frozen rows and columns, hidden state and tab color. Only the properties you pass are changed.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        index: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('New zero-based position of the tab.'),
+        frozenRowCount: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('Number of rows to freeze at the top (0 unfreezes).'),
+        frozenColumnCount: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('Number of columns to freeze at the left (0 unfreezes).'),
+        hidden: z.boolean().optional().describe('Whether the tab is hidden.'),
+        tabColor: z
+          .string()
+          .optional()
+          .describe('Tab color as a hex string, e.g. "#FF9900".'),
+      },
+    },
+    sheetsService.updateSheetProperties,
+  );
+
+  const rangeSchema = z
+    .string()
+    .describe(
+      'A1 range without the sheet name, e.g. "A1:C10", "A:B" (whole columns) or "2:5" (whole rows).',
+    );
+  const dimensionSchema = z
+    .enum(['ROWS', 'COLUMNS'])
+    .describe('Whether to act on rows or columns.');
+  const countSchema = z.number().int().min(1).describe('How many to act on.');
+
+  registerTool(
+    'sheets.createSpreadsheet',
+    {
+      description:
+        'Creates a new Google Sheets spreadsheet. Returns its spreadsheetId, URL and tabs.',
+      inputSchema: {
+        title: z.string().min(1).describe('The title of the spreadsheet.'),
+        sheetTitles: z
+          .array(z.string().min(1))
+          .optional()
+          .describe('Titles of the tabs to create (default: one "Sheet1").'),
+      },
+    },
+    sheetsService.createSpreadsheet,
+  );
+
+  registerTool(
+    'sheets.duplicateSheet',
+    {
+      description:
+        'Duplicates a tab, with its data and formatting, within the same spreadsheet. Returns the new sheetId.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        newTitle: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Title of the copy (default: "Copy of <title>").'),
+        index: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('Zero-based position of the copy (default: the end).'),
+      },
+    },
+    sheetsService.duplicateSheet,
+  );
+
+  registerTool(
+    'sheets.clearRange',
+    {
+      description:
+        'Clears the values in a range of a Google Sheets spreadsheet. Formatting is kept.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        range: z
+          .string()
+          .describe('A1 range including the tab name, e.g. "Sheet1!A2:D100".'),
+      },
+    },
+    sheetsService.clearRange,
+  );
+
+  registerTool(
+    'sheets.formatRange',
+    {
+      description:
+        'Applies bold and/or a number format to a range. Only the properties you pass are changed.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        range: rangeSchema,
+        bold: z.boolean().optional().describe('Make the text bold or not.'),
+        numberFormat: z
+          .object({
+            type: z
+              .enum([
+                'TEXT',
+                'NUMBER',
+                'PERCENT',
+                'CURRENCY',
+                'DATE',
+                'TIME',
+                'DATE_TIME',
+                'SCIENTIFIC',
+              ])
+              .describe('The kind of format.'),
+            pattern: z
+              .string()
+              .optional()
+              .describe('Optional pattern, e.g. "$#,##0.00" or "yyyy-mm-dd".'),
+          })
+          .optional()
+          .describe('Number format to apply.'),
+      },
+    },
+    sheetsService.formatRange,
+  );
+
+  registerTool(
+    'sheets.setColumnWidth',
+    {
+      description: 'Sets the width, in pixels, of one or more columns.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        columns: z
+          .string()
+          .describe('A column letter or range, e.g. "B" or "A:C".'),
+        pixelSize: z.number().int().min(1).describe('Width in pixels.'),
+      },
+    },
+    sheetsService.setColumnWidth,
+  );
+
+  registerTool(
+    'sheets.insertDimension',
+    {
+      description:
+        'Inserts blank rows or columns. Existing ones from startIndex move down or right.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        dimension: dimensionSchema,
+        startIndex: z
+          .number()
+          .int()
+          .min(0)
+          .describe('Zero-based index to insert at (row 1 / column A is 0).'),
+        count: countSchema,
+      },
+    },
+    sheetsService.insertDimension,
+  );
+
+  registerTool(
+    'sheets.deleteDimension',
+    {
+      description:
+        'Deletes rows or columns, and the data in them. Later ones move up or left.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        dimension: dimensionSchema,
+        startIndex: z
+          .number()
+          .int()
+          .min(0)
+          .describe(
+            'Zero-based index of the first to delete (row 1 / column A is 0).',
+          ),
+        count: countSchema,
+      },
+    },
+    sheetsService.deleteDimension,
+  );
+
+  registerTool(
+    'sheets.sortRange',
+    {
+      description:
+        'Sorts the rows of a range by one column. Leave the header row out of the range.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetId: sheetIdSchema,
+        range: rangeSchema,
+        sortColumn: z
+          .string()
+          .describe(
+            'Letter of the column to sort by; must be inside the range.',
+          ),
+        descending: z.boolean().optional().describe('Sort Z–A (default: A–Z).'),
+      },
+    },
+    sheetsService.sortRange,
   );
 
   registerTool(
