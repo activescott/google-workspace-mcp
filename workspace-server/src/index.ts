@@ -1423,6 +1423,38 @@ async function main() {
   );
 
   registerTool(
+    'sheets.insertRows',
+    {
+      description:
+        'Inserts blank rows at a position in a named tab of a Google Sheets spreadsheet, pushing existing rows down, and optionally writes values into them. New rows take the formatting of the row above. Values are written as literal text (RAW), so formulas are not evaluated. Returns the inserted range and counts, not cell contents.',
+      inputSchema: {
+        spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+        sheetName: z.string().min(1).describe('The title of the tab.'),
+        row: z
+          .number()
+          .int()
+          .min(1)
+          .describe(
+            '1-based row number the first new row will occupy; the row currently there moves down.',
+          ),
+        count: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe('How many rows to insert. Defaults to 1.'),
+        values: z
+          .array(z.array(z.union([z.string(), z.number(), z.boolean()])))
+          .optional()
+          .describe(
+            'Optional rows of cell values written into the new rows starting at column A, e.g. [["2026-11-01", "GoDaddy", 12.99]]. At most count rows.',
+          ),
+      },
+    },
+    sheetsService.insertRows,
+  );
+
+  registerTool(
     'sheets.deleteDimension',
     {
       description:

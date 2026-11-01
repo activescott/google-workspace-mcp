@@ -56,6 +56,8 @@ to write the edit as a suggestion instead of editing directly.
 - `sheets.updateRange`: Writes values to a range in a Google Sheets spreadsheet.
 - `sheets.appendRows`: Appends rows after the last row of a table in a Google
   Sheets spreadsheet.
+- `sheets.insertRows`: Inserts rows at a position in a named tab and optionally
+  writes values into them.
 - `sheets.addSheet`: Adds a tab to a Google Sheets spreadsheet and returns its
   sheetId.
 - `sheets.deleteSheet`: Deletes a tab from a Google Sheets spreadsheet.
