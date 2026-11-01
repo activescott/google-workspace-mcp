@@ -252,6 +252,7 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
     tools: [
       'sheets.updateRange',
       'sheets.appendRows',
+      'sheets.insertRows',
       'sheets.addSheet',
       'sheets.deleteSheet',
       'sheets.renameSheet',
