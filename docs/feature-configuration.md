@@ -133,6 +133,7 @@ When a feature group is disabled:
 ### `drive.write`
 
 - `drive.createFolder`
+- `drive.uploadFile`
 - `drive.moveFile`
 - `drive.trashFile`
 - `drive.renameFile`
@@ -209,6 +210,7 @@ When a feature group is disabled:
 
 - `sheets.updateRange`
 - `sheets.appendRows`
+- `sheets.insertRows`
 - `sheets.addSheet`
 - `sheets.deleteSheet`
 - `sheets.renameSheet`

@@ -978,6 +978,123 @@ describe('SheetsService', () => {
       });
     });
 
+    it('insertRows resolves the tab title and inserts with inheritFromBefore', async () => {
+      const result = await sheetsService.insertRows({
+        spreadsheetId: 'test-id',
+        sheetName: 'Vendors',
+        row: 5,
+        count: 2,
+      });
+      expect(lastRequest()).toEqual({
+        insertDimension: {
+          range: { sheetId: 42, dimension: 'ROWS', startIndex: 4, endIndex: 6 },
+          inheritFromBefore: true,
+        },
+      });
+      expect(body(result)).toEqual({
+        sheetName: 'Vendors',
+        insertedRange: "'Vendors'!5:6",
+        insertedRows: 2,
+      });
+      expect(mockSheetsAPI.spreadsheets.values.update).not.toHaveBeenCalled();
+    });
+
+    it('insertRows defaults to one row and does not inherit at row 1', async () => {
+      await sheetsService.insertRows({
+        spreadsheetId: 'test-id',
+        sheetName: 'Sheet1',
+        row: 1,
+      });
+      expect(lastRequest()).toEqual({
+        insertDimension: {
+          range: { sheetId: 0, dimension: 'ROWS', startIndex: 0, endIndex: 1 },
+          inheritFromBefore: false,
+        },
+      });
+    });
+
+    it('insertRows writes values RAW and omits them from the answer', async () => {
+      mockSheetsAPI.spreadsheets.values.update.mockResolvedValue({
+        data: {
+          updatedRange: 'Vendors!A5:B5',
+          updatedRows: 1,
+          updatedCells: 2,
+        },
+      });
+      const result = await sheetsService.insertRows({
+        spreadsheetId: 'test-id',
+        sheetName: 'Vendors',
+        row: 5,
+        values: [['GoDaddy', '=1+1']],
+      });
+      expect(mockSheetsAPI.spreadsheets.values.update).toHaveBeenCalledWith({
+        spreadsheetId: 'test-id',
+        range: "'Vendors'!A5",
+        valueInputOption: 'RAW',
+        requestBody: { majorDimension: 'ROWS', values: [['GoDaddy', '=1+1']] },
+      });
+      expect(body(result)).toEqual({
+        sheetName: 'Vendors',
+        insertedRange: "'Vendors'!5:5",
+        insertedRows: 1,
+        updatedRange: 'Vendors!A5:B5',
+        updatedRows: 1,
+        updatedCells: 2,
+      });
+      expect(result.content[0].text).not.toContain('GoDaddy');
+    });
+
+    it('insertRows escapes quotes in the tab title', async () => {
+      mockSheetsAPI.spreadsheets.get.mockResolvedValue({
+        data: { sheets: [{ properties: { sheetId: 7, title: "Bob's" } }] },
+      });
+      mockSheetsAPI.spreadsheets.values.update.mockResolvedValue({ data: {} });
+      await sheetsService.insertRows({
+        spreadsheetId: 'test-id',
+        sheetName: "Bob's",
+        row: 2,
+        values: [['x']],
+      });
+      expect(
+        mockSheetsAPI.spreadsheets.values.update.mock.calls[0][0].range,
+      ).toBe("'Bob''s'!A2");
+    });
+
+    it('insertRows reports an unknown tab without calling batchUpdate', async () => {
+      const result = await sheetsService.insertRows({
+        spreadsheetId: 'test-id',
+        sheetName: 'Nope',
+        row: 2,
+      });
+      expect(body(result).error).toContain('No sheet titled "Nope"');
+      expect(mockSheetsAPI.spreadsheets.batchUpdate).not.toHaveBeenCalled();
+    });
+
+    it('insertRows rejects more value rows than count before inserting', async () => {
+      const result = await sheetsService.insertRows({
+        spreadsheetId: 'test-id',
+        sheetName: 'Vendors',
+        row: 2,
+        values: [['a'], ['b']],
+      });
+      expect(body(result).error).toContain('count is 1');
+      expect(mockSheetsAPI.spreadsheets.batchUpdate).not.toHaveBeenCalled();
+    });
+
+    it('insertRows says the rows were inserted when the write fails', async () => {
+      mockSheetsAPI.spreadsheets.values.update.mockRejectedValue(
+        new Error('boom'),
+      );
+      const result = await sheetsService.insertRows({
+        spreadsheetId: 'test-id',
+        sheetName: 'Vendors',
+        row: 3,
+        values: [['a']],
+      });
+      expect(body(result).error).toContain('were inserted at row 3');
+      expect(body(result).error).toContain('boom');
+    });
+
     it('deleteDimension deletes columns', async () => {
       const result = await sheetsService.deleteDimension({
         spreadsheetId: 'test-id',

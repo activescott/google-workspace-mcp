@@ -899,6 +899,95 @@ export class SheetsService {
       () => ({ sheetId, dimension, startIndex, inserted: count }),
     );
 
+  public insertRows = async ({
+    spreadsheetId,
+    sheetName,
+    row,
+    count = 1,
+    values,
+  }: {
+    spreadsheetId: string;
+    sheetName: string;
+    row: number;
+    count?: number;
+    values?: CellValue[][];
+  }) => {
+    logToFile(
+      `[SheetsService] Starting insertRows for spreadsheet: ${spreadsheetId}, sheet: ${sheetName}, row: ${row}`,
+    );
+    let inserted = false;
+    try {
+      if (values && values.length > count) {
+        throw new Error(
+          `values has ${values.length} rows but count is ${count}; raise count or send fewer rows.`,
+        );
+      }
+      const id = extractDocId(spreadsheetId) || spreadsheetId;
+      const sheets = await this.getSheetsClient();
+      const tabs = await this.listTabs(sheets, id);
+      const tab = tabs.find((t) => t.title === sheetName);
+      if (tab?.sheetId === undefined || tab.sheetId === null) {
+        const known = tabs.map((t) => `"${t.title}"`).join(', ');
+        throw new Error(
+          `No sheet titled "${sheetName}" in this spreadsheet. Existing sheets: ${known}`,
+        );
+      }
+
+      const startIndex = row - 1;
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: id,
+        requestBody: {
+          requests: [
+            {
+              insertDimension: {
+                range: {
+                  sheetId: tab.sheetId,
+                  dimension: 'ROWS',
+                  startIndex,
+                  endIndex: startIndex + count,
+                },
+                // Inherit formatting from the row above, except at the very start.
+                inheritFromBefore: row > 1,
+              },
+            },
+          ],
+        },
+      });
+      inserted = true;
+
+      const quoted = `'${sheetName.replace(/'/g, "''")}'`;
+      const result: Record<string, unknown> = {
+        sheetName,
+        insertedRange: `${quoted}!${row}:${row + count - 1}`,
+        insertedRows: count,
+      };
+      if (values && values.length > 0) {
+        const response = await sheets.spreadsheets.values.update({
+          spreadsheetId: id,
+          range: `${quoted}!A${row}`,
+          valueInputOption: 'RAW',
+          requestBody: { majorDimension: 'ROWS', values },
+        });
+        result.updatedRange = response.data.updatedRange;
+        result.updatedRows = response.data.updatedRows;
+        result.updatedCells = response.data.updatedCells;
+      }
+      logToFile(`[SheetsService] Finished insertRows for spreadsheet: ${id}`);
+      return this.jsonResult(result);
+    } catch (error) {
+      if (inserted) {
+        const message = error instanceof Error ? error.message : String(error);
+        return this.errorResult(
+          'sheets.insertRows',
+          new Error(
+            `The ${count} row(s) were inserted at row ${row}, but writing values failed: ${message}`,
+          ),
+        );
+      }
+      return this.errorResult('sheets.insertRows', error);
+    }
+  };
+
   public deleteDimension = async ({
     spreadsheetId,
     sheetId,
