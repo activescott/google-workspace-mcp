@@ -54,8 +54,10 @@ to write the edit as a suggestion instead of editing directly.
   spreadsheet.
 - `sheets.getMetadata`: Gets metadata about a Google Sheets spreadsheet.
 - `sheets.updateRange`: Writes values to a range in a Google Sheets spreadsheet.
+  Values are written as-is (RAW): strings are stored as literal text, never
+  evaluated as formulas.
 - `sheets.appendRows`: Appends rows after the last row of a table in a Google
-  Sheets spreadsheet.
+  Sheets spreadsheet. Values are written as-is (RAW), like `sheets.updateRange`.
 - `sheets.addSheet`: Adds a tab to a Google Sheets spreadsheet and returns its
   sheetId.
 - `sheets.deleteSheet`: Deletes a tab from a Google Sheets spreadsheet.
