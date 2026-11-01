@@ -46,7 +46,10 @@ import {
 import { SheetsService } from './services/SheetsService';
 import { TasksService } from './services/TasksService';
 import { GMAIL_SEARCH_MAX_RESULTS } from './utils/constants';
-import { gmailAttachmentSchema } from './utils/validation';
+import {
+  driveUploadFileSchema,
+  gmailAttachmentSchema,
+} from './utils/validation';
 
 import { setLoggingEnabled, logToFile } from './utils/logger';
 import { applyToolNameNormalization } from './utils/tool-normalization';
@@ -1514,6 +1517,16 @@ async function main() {
       },
     },
     driveService.downloadFile,
+  );
+
+  registerTool(
+    'drive.uploadFile',
+    {
+      description:
+        'Uploads a file from the mcp-gateway upload store (POST /uploads) to Google Drive as a new file, without converting it to a Google Doc/Sheet/Slide. Returns the new file id, name, mimeType and webViewLink.',
+      inputSchema: driveUploadFileSchema.shape,
+    },
+    driveService.uploadFile,
   );
 
   registerTool(
