@@ -49,6 +49,8 @@ jest.mock('../../utils/paths', () => ({
 }));
 
 import * as fs from 'node:fs';
+import * as os from 'node:os';
+import { driveUploadFileSchema } from '../../utils/validation';
 
 describe('DriveService', () => {
   let driveService: DriveService;
@@ -216,6 +218,186 @@ describe('DriveService', () => {
       expect(JSON.parse(result.content[0].text)).toEqual({
         error: 'API request failed',
       });
+    });
+  });
+
+  describe('uploadFile', () => {
+    // The real filesystem: only mkdir and writeFile are mocked above.
+    const realFs = jest.requireActual('node:fs') as typeof fs;
+    const UPLOAD_ID = `upl_${'a'.repeat(32)}`;
+    let uploadsDir: string;
+    let uploaded: string | undefined;
+
+    const upload = (id: string, bytes: string | Buffer) =>
+      realFs.writeFileSync(`${uploadsDir}/${id}`, bytes);
+    const remaining = () => realFs.readdirSync(uploadsDir);
+    const errorOf = (result: { content: { text: string }[] }) =>
+      JSON.parse(result.content[0].text).error;
+
+    beforeEach(() => {
+      uploadsDir = realFs.mkdtempSync(`${os.tmpdir()}/drive-uploads-`);
+      process.env['WORKSPACE_UPLOADS_DIR'] = uploadsDir;
+      uploaded = undefined;
+      mockDriveAPI.files.create.mockImplementation(async (params: any) => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of params.media.body) chunks.push(chunk);
+        uploaded = Buffer.concat(chunks).toString();
+        return { data: { id: 'f1' } };
+      });
+    });
+
+    afterEach(() => {
+      delete process.env['WORKSPACE_UPLOADS_DIR'];
+      realFs.rmSync(uploadsDir, { recursive: true, force: true });
+    });
+
+    it('takes an uploadId and no path', () => {
+      expect(Object.keys(driveUploadFileSchema.shape).sort()).toEqual([
+        'mimeType',
+        'name',
+        'parentFolderId',
+        'uploadId',
+      ]);
+      expect(
+        driveUploadFileSchema.safeParse({ filePath: '/etc/passwd' }).success,
+      ).toBe(false);
+    });
+
+    it('streams the upload to Drive and deletes it', async () => {
+      upload(UPLOAD_ID, '%PDF-1.7 hello');
+      const created = {
+        id: 'f1',
+        name: 'report.pdf',
+        mimeType: 'application/pdf',
+        webViewLink: 'https://drive.google.com/file/d/f1/view',
+      };
+      mockDriveAPI.files.create.mockImplementationOnce(async (params: any) => {
+        for await (const chunk of params.media.body) uploaded = String(chunk);
+        return { data: created };
+      });
+
+      const result = await driveService.uploadFile({
+        uploadId: UPLOAD_ID,
+        name: 'report.pdf',
+      });
+
+      expect(mockDriveAPI.files.create).toHaveBeenCalledWith({
+        requestBody: { name: 'report.pdf' },
+        media: { mimeType: 'application/pdf', body: expect.anything() },
+        fields: 'id, name, mimeType, webViewLink',
+        supportsAllDrives: true,
+      });
+      expect(uploaded).toBe('%PDF-1.7 hello');
+      expect(JSON.parse(result.content[0].text)).toEqual(created);
+      expect(remaining()).toEqual([]);
+    });
+
+    it('honors parentFolderId and mimeType', async () => {
+      upload(UPLOAD_ID, 'x');
+
+      await driveService.uploadFile({
+        uploadId: UPLOAD_ID,
+        name: 'blob.bin',
+        parentFolderId: 'folder1',
+        mimeType: 'text/plain',
+      });
+
+      expect(mockDriveAPI.files.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestBody: { name: 'blob.bin', parents: ['folder1'] },
+          media: expect.objectContaining({ mimeType: 'text/plain' }),
+        }),
+      );
+    });
+
+    it('rejects an uploadId that was already used', async () => {
+      upload(UPLOAD_ID, 'x');
+      await driveService.uploadFile({ uploadId: UPLOAD_ID, name: 'a.txt' });
+
+      const result = await driveService.uploadFile({
+        uploadId: UPLOAD_ID,
+        name: 'a.txt',
+      });
+
+      expect(errorOf(result)).toMatch(/Unknown or already used uploadId/);
+      expect(mockDriveAPI.files.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects an unknown uploadId', async () => {
+      const result = await driveService.uploadFile({
+        uploadId: `upl_${'b'.repeat(32)}`,
+        name: 'a.txt',
+      });
+      expect(errorOf(result)).toMatch(/Unknown or already used uploadId/);
+      expect(mockDriveAPI.files.create).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      '/etc/passwd',
+      '../credentials.json',
+      `upl_${'a'.repeat(32)}/../../etc/passwd`,
+      `upl_${'A'.repeat(32)}`,
+      '',
+    ])('rejects %j, which is not an upload ID', async (uploadId) => {
+      const result = await driveService.uploadFile({ uploadId, name: 'a' });
+      expect(errorOf(result)).toMatch(/Unknown or already used uploadId/);
+      expect(mockDriveAPI.files.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a symlink in the store and still uses it up', async () => {
+      const secret = `${uploadsDir}-secret`;
+      realFs.writeFileSync(secret, 'refresh_token');
+      realFs.symlinkSync(secret, `${uploadsDir}/${UPLOAD_ID}`);
+
+      const result = await driveService.uploadFile({
+        uploadId: UPLOAD_ID,
+        name: 'a.txt',
+      });
+
+      expect(result).toHaveProperty('isError', true);
+      expect(mockDriveAPI.files.create).not.toHaveBeenCalled();
+      expect(remaining()).toEqual([]);
+      realFs.rmSync(secret);
+    });
+
+    it('refuses when the upload store is not configured', async () => {
+      delete process.env['WORKSPACE_UPLOADS_DIR'];
+      upload(UPLOAD_ID, 'x');
+      const result = await driveService.uploadFile({
+        uploadId: UPLOAD_ID,
+        name: 'a.txt',
+      });
+      expect(errorOf(result)).toMatch(/WORKSPACE_UPLOADS_DIR is not set/);
+      expect(remaining()).toEqual([UPLOAD_ID]);
+    });
+
+    it('needs a name', async () => {
+      upload(UPLOAD_ID, 'x');
+      const result = await driveService.uploadFile({ uploadId: UPLOAD_ID });
+      expect(errorOf(result)).toMatch(/name is required/);
+      expect(remaining()).toEqual([UPLOAD_ID]);
+    });
+
+    it('rejects uploads over the size cap', async () => {
+      upload(UPLOAD_ID, '');
+      realFs.truncateSync(`${uploadsDir}/${UPLOAD_ID}`, 51 * 1024 * 1024);
+      const result = await driveService.uploadFile({
+        uploadId: UPLOAD_ID,
+        name: 'big.bin',
+      });
+      expect(errorOf(result)).toMatch(/exceeds the maximum/);
+      expect(mockDriveAPI.files.create).not.toHaveBeenCalled();
+    });
+
+    it('returns API errors and still uses the upload up', async () => {
+      upload(UPLOAD_ID, 'x');
+      mockDriveAPI.files.create.mockRejectedValue(new Error('boom'));
+      const result = await driveService.uploadFile({
+        uploadId: UPLOAD_ID,
+        name: 'a.txt',
+      });
+      expect(JSON.parse(result.content[0].text)).toEqual({ error: 'boom' });
+      expect(remaining()).toEqual([]);
     });
   });
 

@@ -99,6 +99,7 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
     scopes: scopes('drive'),
     tools: [
       'drive.createFolder',
+      'drive.uploadFile',
       'drive.moveFile',
       'drive.trashFile',
       'drive.renameFile',
