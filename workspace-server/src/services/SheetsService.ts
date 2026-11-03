@@ -253,12 +253,10 @@ export class SheetsService {
     spreadsheetId,
     range,
     values,
-    valueInputOption = 'USER_ENTERED',
   }: {
     spreadsheetId: string;
     range: string;
     values: CellValue[][];
-    valueInputOption?: 'USER_ENTERED' | 'RAW';
   }) => {
     logToFile(
       `[SheetsService] Starting updateRange for spreadsheet: ${spreadsheetId}, range: ${range}`,
@@ -267,10 +265,12 @@ export class SheetsService {
       const id = extractDocId(spreadsheetId) || spreadsheetId;
 
       const sheets = await this.getSheetsClient();
+      // Always RAW, never USER_ENTERED: a string that looks like a formula is
+      // stored as literal text, so a write cannot make Sheets evaluate it.
       const response = await sheets.spreadsheets.values.update({
         spreadsheetId: id,
         range: range,
-        valueInputOption,
+        valueInputOption: 'RAW',
         requestBody: { range: range, majorDimension: 'ROWS', values: values },
       });
 
@@ -309,12 +309,10 @@ export class SheetsService {
     spreadsheetId,
     range,
     values,
-    valueInputOption = 'USER_ENTERED',
   }: {
     spreadsheetId: string;
     range: string;
     values: CellValue[][];
-    valueInputOption?: 'USER_ENTERED' | 'RAW';
   }) => {
     logToFile(
       `[SheetsService] Starting appendRows for spreadsheet: ${spreadsheetId}, range: ${range}`,
@@ -324,10 +322,11 @@ export class SheetsService {
 
       const sheets = await this.getSheetsClient();
       // INSERT_ROWS so rows below the table are pushed down, not overwritten.
+      // Always RAW, never USER_ENTERED, for the same reason as updateRange.
       const response = await sheets.spreadsheets.values.append({
         spreadsheetId: id,
         range: range,
-        valueInputOption,
+        valueInputOption: 'RAW',
         insertDataOption: 'INSERT_ROWS',
         requestBody: { majorDimension: 'ROWS', values: values },
       });
