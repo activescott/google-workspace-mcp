@@ -1507,10 +1507,17 @@ async function main() {
           .string()
           .optional()
           .describe('The token for the next page of results.'),
-        corpus: z
+        corpus: z.string().optional().describe('Deprecated alias of corpora.'),
+        corpora: z
+          .enum(['user', 'domain', 'drive', 'allDrives'])
+          .optional()
+          .describe(
+            'Where to search. Defaults to allDrives (My Drive and shared drives). "drive" requires driveId.',
+          ),
+        driveId: z
           .string()
           .optional()
-          .describe('The corpus of files to search (e.g., "user", "domain").'),
+          .describe('The shared drive to search when corpora is "drive".'),
         unreadOnly: z
           .boolean()
           .optional()

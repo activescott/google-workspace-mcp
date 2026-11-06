@@ -78,6 +78,7 @@ export class DriveService {
         q: query,
         fields: 'files(id, name)',
         spaces: 'drive',
+        corpora: 'allDrives',
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,
       });
@@ -159,13 +160,17 @@ export class DriveService {
     pageSize = 10,
     pageToken,
     corpus,
+    corpora,
+    driveId,
     unreadOnly,
     sharedWithMe,
   }: {
     query?: string;
     pageSize?: number;
     pageToken?: string;
-    corpus?: string;
+    corpus?: string; // deprecated v2 name, kept as an alias of corpora
+    corpora?: 'user' | 'domain' | 'drive' | 'allDrives';
+    driveId?: string;
     unreadOnly?: boolean;
     sharedWithMe?: boolean;
   }) => {
@@ -312,9 +317,8 @@ export class DriveService {
     }
 
     logToFile(`Executing Drive search with query: ${q}`);
-    if (corpus) {
-      logToFile(`Using corpus: ${corpus}`);
-    }
+    const effectiveCorpora = corpora ?? corpus ?? 'allDrives';
+    logToFile(`Using corpora: ${effectiveCorpora}`);
     if (unreadOnly) {
       logToFile('Filtering for unread files only.');
     }
@@ -324,7 +328,8 @@ export class DriveService {
         q: q,
         pageSize: pageSize,
         pageToken: pageToken,
-        corpus: corpus as 'user' | 'domain' | undefined,
+        corpora: effectiveCorpora as 'user' | 'domain' | 'drive' | 'allDrives',
+        driveId,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
