@@ -120,6 +120,7 @@ describe('DriveService', () => {
         q: "mimeType='application/vnd.google-apps.folder' and name = 'TestFolder'",
         fields: 'files(id, name)',
         spaces: 'drive',
+        corpora: 'allDrives',
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,
       });
@@ -432,7 +433,8 @@ describe('DriveService', () => {
         q: "name contains 'Document'",
         pageSize: 20,
         pageToken: undefined,
-        corpus: undefined,
+        corpora: 'allDrives',
+        driveId: undefined,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
@@ -474,7 +476,8 @@ describe('DriveService', () => {
         q: "fullText contains 'My Document'",
         pageSize: 20,
         pageToken: undefined,
-        corpus: undefined,
+        corpora: 'allDrives',
+        driveId: undefined,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
@@ -511,7 +514,8 @@ describe('DriveService', () => {
         q: "fullText contains 'John\\'s \\\\Report'",
         pageSize: 10,
         pageToken: undefined,
-        corpus: undefined,
+        corpora: 'allDrives',
+        driveId: undefined,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
@@ -547,7 +551,8 @@ describe('DriveService', () => {
         q: "name contains 'My Document'",
         pageSize: 10,
         pageToken: undefined,
-        corpus: undefined,
+        corpora: 'allDrives',
+        driveId: undefined,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
@@ -582,7 +587,8 @@ describe('DriveService', () => {
         q: "name contains 'Test Document'",
         pageSize: 10,
         pageToken: undefined,
-        corpus: undefined,
+        corpora: 'allDrives',
+        driveId: undefined,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
@@ -616,7 +622,8 @@ describe('DriveService', () => {
         q: 'sharedWithMe',
         pageSize: 10,
         pageToken: undefined,
-        corpus: undefined,
+        corpora: 'allDrives',
+        driveId: undefined,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
@@ -674,7 +681,8 @@ describe('DriveService', () => {
         q: 'type = "document"',
         pageSize: 10,
         pageToken: 'previous-token',
-        corpus: undefined,
+        corpora: 'allDrives',
+        driveId: undefined,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
@@ -698,12 +706,41 @@ describe('DriveService', () => {
         q: 'type = "document"',
         pageSize: 10,
         pageToken: undefined,
-        corpus: 'domain',
+        corpora: 'domain',
+        driveId: undefined,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,
       });
+    });
+
+    it('should map the deprecated corpus param to corpora', async () => {
+      mockDriveAPI.files.list.mockResolvedValue({ data: { files: [] } });
+
+      await driveService.search({ query: 'x = 1', corpus: 'user' });
+
+      expect(mockDriveAPI.files.list).toHaveBeenCalledWith(
+        expect.objectContaining({ corpora: 'user' }),
+      );
+    });
+
+    it('should list a shared-drive folder URL across all drives', async () => {
+      mockDriveAPI.files.list.mockResolvedValue({ data: { files: [] } });
+
+      await driveService.search({
+        query:
+          'https://drive.google.com/drive/folders/1TqYRD2DxbT8AxfQASjQN-E6L0H6dNYkL',
+      });
+
+      expect(mockDriveAPI.files.list).toHaveBeenCalledWith(
+        expect.objectContaining({
+          q: "'1TqYRD2DxbT8AxfQASjQN-E6L0H6dNYkL' in parents",
+          corpora: 'allDrives',
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+        }),
+      );
     });
 
     it('should handle API errors gracefully', async () => {
@@ -732,7 +769,8 @@ describe('DriveService', () => {
         q: undefined,
         pageSize: 10,
         pageToken: undefined,
-        corpus: undefined,
+        corpora: 'allDrives',
+        driveId: undefined,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
@@ -764,7 +802,8 @@ describe('DriveService', () => {
         q: "'folder123' in parents",
         pageSize: 10,
         pageToken: undefined,
-        corpus: undefined,
+        corpora: 'allDrives',
+        driveId: undefined,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
@@ -797,7 +836,8 @@ describe('DriveService', () => {
         q: "'1Ahs8C3GFWBZnrzQ44z0OR07hNQTWlE7u' in parents",
         pageSize: 10,
         pageToken: undefined,
-        corpus: undefined,
+        corpora: 'allDrives',
+        driveId: undefined,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
@@ -915,7 +955,8 @@ describe('DriveService', () => {
         q: "'folder789' in parents",
         pageSize: 10,
         pageToken: undefined,
-        corpus: undefined,
+        corpora: 'allDrives',
+        driveId: undefined,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
@@ -987,7 +1028,8 @@ describe('DriveService', () => {
         q: "'1Ahs8C3GFWBZnrzQ44z0OR07hNQTWlE7u' in parents",
         pageSize: 10,
         pageToken: undefined,
-        corpus: undefined,
+        corpora: 'allDrives',
+        driveId: undefined,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
@@ -1017,7 +1059,8 @@ describe('DriveService', () => {
         q: "'me' in owners",
         pageSize: 10,
         pageToken: undefined,
-        corpus: undefined,
+        corpora: 'allDrives',
+        driveId: undefined,
         fields:
           'nextPageToken, files(id, name, modifiedTime, viewedByMeTime, mimeType, parents)',
         supportsAllDrives: true,
